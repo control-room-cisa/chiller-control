@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Power, ThermometerSnowflake } from 'lucide-react';
-import { Routes, Route } from 'react-router';
+import { Power, ThermometerSnowflake, LogOut, Database } from 'lucide-react';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import './App.css';
 import DataLogger from './components/DataLogger';
+import Login from './components/Login';
+import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 
 // Use HTTP since SSL is not available
 const DOMAIN = 'tegus.arrayanhn.com';
@@ -37,8 +39,13 @@ const ChillerControl = () => {
     setIsLoading(true);
     setError(null);
     try {
+      const token = localStorage.getItem('authToken');
       const response = await fetch(`${API_BASE_URL}/chiller/on`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
       const data = await response.json();
       if (data.success) {
@@ -57,8 +64,13 @@ const ChillerControl = () => {
     setIsLoading(true);
     setError(null);
     try {
+      const token = localStorage.getItem('authToken');
       const response = await fetch(`${API_BASE_URL}/chiller/off`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
       const data = await response.json();
       if (data.success) {
@@ -134,9 +146,63 @@ const ChillerControl = () => {
   );
 };
 
-export default function App() {
+// Componente principal con autenticación
+const AppContent = () => {
+  const { user, logout, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  if (!isAuthenticated) {
+    return <Login onLogin={() => {}} />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-100">
+      {/* Header con información del usuario y botón de logout */}
+      <div className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <h1 className="text-xl font-semibold text-gray-900">
+              Sistema de Control - Chiller
+            </h1>
+            <div className="flex items-center space-x-4">
+              <span className="text-sm text-gray-600">
+                Bienvenido, <span className="font-medium">{user?.usuario}</span>
+              </span>
+              
+              {/* Botón Data Logger - solo mostrar si no estamos ya en esa página */}
+              {location.pathname !== '/data_logger' && (
+                <button
+                  onClick={() => navigate('/data_logger')}
+                  className="inline-flex items-center px-3 py-2 border border-blue-300 text-sm leading-4 font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  <Database className="mr-2 h-4 w-4" />
+                  Data Logger
+                </button>
+              )}
+              
+              {/* Botón Home - solo mostrar si estamos en data_logger */}
+              {location.pathname === '/data_logger' && (
+                <button
+                  onClick={() => navigate('/')}
+                  className="inline-flex items-center px-3 py-2 border border-green-300 text-sm leading-4 font-medium rounded-md text-green-700 bg-green-50 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                >
+                  Control Chiller
+                </button>
+              )}
+              
+              <button
+                onClick={logout}
+                className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Cerrar Sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="min-h-screen flex items-center justify-center">
         <Routes>
           <Route path="/" element={<ChillerControl />} />
@@ -144,5 +210,13 @@ export default function App() {
         </Routes>
       </div>
     </div>
+  );
+};
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

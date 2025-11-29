@@ -11,11 +11,23 @@ dayjs.extend(timezone);
 // Establecer la zona horaria por defecto
 dayjs.tz.setDefault('America/Tegucigalpa');
 
+const API_BASE = 'http://tegus.arrayanhn.com:3001';
+
+const api = axios.create({
+  baseURL: API_BASE,
+  withCredentials: true,
+});
+
 const opciones = [
   { value: 'chiller_aire_minutos', label: 'Chiller Aire Minutos' },
   { value: 'chiller_aire_segundos', label: 'Chiller Aire Segundos' },
   { value: 'chiller_agua_minutos', label: 'Chiller Agua Minutos' },
   { value: 'chiller_agua_segundos', label: 'Chiller Agua Segundos' },
+
+  // ✅ NUEVAS (enfriado)
+  { value: 'chiller_enfriado_aire_segundos', label: 'Chiller Enfriado Aire (Segundos)' },
+  { value: 'chiller_enfriado_agua_segundos', label: 'Chiller Enfriado Agua (Segundos)' },
+
   { value: 'ion_meter_minutos', label: 'Medidor Ion' },
   { value: 'resumen_bitacora', label: 'Resumen Bitácora' },
 ];
@@ -31,13 +43,15 @@ export default function DataLogger() {
   const [totalPages, setTotalPages] = useState(1);
   const [dateFilter, setDateFilter] = useState('');
   const [exporting, setExporting] = useState(false);
-  // Nuevos estados para el tiempo de encendido
+
+  // Tiempo de encendido
   const [sensorUptime, setSensorUptime] = useState({
     air: { hours: 0, minutes: 0, seconds: 0 },
     pump: { hours: 0, minutes: 0, seconds: 0 },
     water: { hours: 0, minutes: 0, seconds: 0 }
   });
-  // Estado para promedios de temperatura
+
+  // Promedios temperatura
   const [temperatureAverages, setTemperatureAverages] = useState({
     avg_temp_entrada: null,
     avg_temp_salida: null,
@@ -46,9 +60,11 @@ export default function DataLogger() {
     date: null,
     table: null
   });
-  // Nuevo estado para KWH IMP de medianoche
+
+  // KWH IMP medianoche
   const [midnightKWH, setMidnightKWH] = useState(null);
-  // Estado para estados de componentes
+
+  // Estados componentes
   const [componentStatus, setComponentStatus] = useState({
     compresor: 0,
     ventilador: 0,
@@ -56,15 +72,26 @@ export default function DataLogger() {
     bomba_condensador: 0,
     timestamp: null
   });
-  // Estado para resumen bitácora
+
+  // Resumen bitácora
   const [summaryData, setSummaryData] = useState({
     main_meter_kwh: null,
     hourmeter_water_chiller: null,
     hourmeter_air_chiller: null,
-    temp_central_chilled_water_tank: null,
+    temp_central_chilled_water_tank_top: "INSTALLATION IN PROCESS",
+    temp_central_chilled_water_tank_bottom: "INSTALLATION IN PROCESS",
+    water_level_city_water_tank: "INSTALLATION IN PROCESS",
+    temp_city_water_tank: "INSTALLATION IN PROCESS",
+    water_level_tank1: null,
+    temp_tank1: "INSTALLATION IN PROCESS",
     water_level_tank2: null,
-    temp_tank2: null,
-    date: null
+    temp_tank2: "INSTALLATION IN PROCESS",
+    water_level_tank3: null,
+    temp_tank3: "INSTALLATION IN PROCESS",
+    cycles_water_chiller: null,
+    cycles_air_chiller: null,
+    date: null,
+    next_day: null
   });
 
   const isMinutesTable = selectedOption.includes('minutos');
@@ -78,19 +105,16 @@ export default function DataLogger() {
     setLoading(true);
     setError(null);
     try {
-      let url = `http://tegus.arrayanhn.com:3001/api/chiller/data/${selectedOption}?date=${dateFilter}`;
-      
-      const response = await axios.get(url);
-      
-      // Sanitizar los datos para asegurar que los valores numéricos sean de tipo number
-      const rawData = response.data.data || [];
+      const url = `/api/chiller/data/${selectedOption}?date=${dateFilter}`;
+      const response = await api.get(url);
+
+      const rawData = response.data?.data || [];
       const sanitizedData = rawData.map(row => {
         const newRow = {};
         for (const key in row) {
           if (Object.hasOwnProperty.call(row, key)) {
-            let value = row[key];
-            // Intentar convertir a número si no es 'fecha_hora' y es parseable como número
-            if (key !== 'fecha_hora' && value !== null && value !== undefined && !isNaN(value)) {
+            const value = row[key];
+            if (key !== 'fecha_hora' && value !== null && value !== undefined && value !== '' && !isNaN(value)) {
               newRow[key] = parseFloat(value);
             } else {
               newRow[key] = value;
@@ -113,11 +137,10 @@ export default function DataLogger() {
     if (!dateFilter) return;
 
     setExporting(true);
+    setError(null);
     try {
-      const response = await axios.get(
-        `http://tegus.arrayanhn.com:3001/api/chiller/export/${selectedOption}?date=${dateFilter}`,
-        { responseType: 'blob' }
-      );
+      const exportUrl = `/api/chiller/export/${selectedOption}?date=${dateFilter}`;
+      const response = await api.get(exportUrl, { responseType: 'blob' });
 
       // Crear URL del blob y link para descarga
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -140,45 +163,50 @@ export default function DataLogger() {
     if (!dateFilter) return;
 
     try {
-      const response = await axios.get(
-        `http://tegus.arrayanhn.com:3001/api/chiller/uptime?date=${dateFilter}&table=${selectedOption}`
-      );
-      
-      if (response.data) {
-        const newUptime = {
-          air: { hours: 0, minutes: 0, seconds: 0 },
-          pump: { hours: 0, minutes: 0, seconds: 0 },
-          water: { hours: 0, minutes: 0, seconds: 0 }
+      const response = await api.get(`/api/chiller/uptime?date=${dateFilter}&table=${selectedOption}`);
+      if (!response.data) return;
+
+      const newUptime = {
+        air: { hours: 0, minutes: 0, seconds: 0 },
+        pump: { hours: 0, minutes: 0, seconds: 0 },
+        water: { hours: 0, minutes: 0, seconds: 0 }
+      };
+
+      // ✅ ORIGINAL + NUEVAS TABLAS (enfriado)
+      if (selectedOption === 'chiller_aire_segundos' || selectedOption === 'chiller_enfriado_aire_segundos') {
+        const airSeconds = response.data.total_segundos_encendido_air || 0;
+        newUptime.air = {
+          hours: Math.floor(airSeconds / 3600),
+          minutes: Math.floor((airSeconds % 3600) / 60),
+          seconds: airSeconds % 60
         };
 
-        if (selectedOption === 'chiller_aire_segundos') {
-          // Calcular tiempo para status_air
-          const airSeconds = response.data.total_segundos_encendido_air || 0;
-          newUptime.air = {
-            hours: Math.floor(airSeconds / 3600),
-            minutes: Math.floor((airSeconds % 3600) / 60),
-            seconds: airSeconds % 60
-          };
+        const pumpSeconds = response.data.total_segundos_encendido_pump || 0;
+        newUptime.pump = {
+          hours: Math.floor(pumpSeconds / 3600),
+          minutes: Math.floor((pumpSeconds % 3600) / 60),
+          seconds: pumpSeconds % 60
+        };
+      } else if (selectedOption === 'chiller_agua_segundos' || selectedOption === 'chiller_enfriado_agua_segundos') {
+        const waterSeconds = response.data.total_segundos_encendido_water || 0;
+        newUptime.water = {
+          hours: Math.floor(waterSeconds / 3600),
+          minutes: Math.floor((waterSeconds % 3600) / 60),
+          seconds: waterSeconds % 60
+        };
 
-          // Calcular tiempo para status_vdf_pump_process
+        // ✅ NUEVO: para chiller_enfriado_agua_segundos también viene bomba (si tu endpoint la manda)
+        if (selectedOption === 'chiller_enfriado_agua_segundos') {
           const pumpSeconds = response.data.total_segundos_encendido_pump || 0;
           newUptime.pump = {
             hours: Math.floor(pumpSeconds / 3600),
             minutes: Math.floor((pumpSeconds % 3600) / 60),
             seconds: pumpSeconds % 60
           };
-        } else if (selectedOption === 'chiller_agua_segundos') {
-          // Calcular tiempo para status_water
-          const waterSeconds = response.data.total_segundos_encendido_water || 0;
-          newUptime.water = {
-            hours: Math.floor(waterSeconds / 3600),
-            minutes: Math.floor((waterSeconds % 3600) / 60),
-            seconds: waterSeconds % 60
-          };
         }
-
-        setSensorUptime(newUptime);
       }
+
+      setSensorUptime(newUptime);
     } catch (err) {
       console.error('Error al obtener tiempo de encendido:', err);
     }
@@ -188,10 +216,7 @@ export default function DataLogger() {
     if (!dateFilter) return;
 
     try {
-      const response = await axios.get(
-        `http://tegus.arrayanhn.com:3001/api/chiller/temperature-averages/${selectedOption}?date=${dateFilter}`
-      );
-      
+      const response = await api.get(`/api/chiller/temperature-averages/${selectedOption}?date=${dateFilter}`);
       if (response.data && response.data.success) {
         setTemperatureAverages(response.data.data);
       }
@@ -269,12 +294,9 @@ export default function DataLogger() {
     }
 
     try {
-      const response = await axios.get(`http://tegus.arrayanhn.com:3001/api/chiller/ion/midnight-kwh-imp?date=${dateFilter}`);
-      if (response.data && response.data.success) {
-        setMidnightKWH(response.data.kwh_imp_midnight);
-      } else {
-        setMidnightKWH(null);
-      }
+      const response = await api.get(`/api/chiller/ion/midnight-kwh-imp?date=${dateFilter}`);
+      if (response.data && response.data.success) setMidnightKWH(response.data.kwh_imp_midnight);
+      else setMidnightKWH(null);
     } catch (err) {
       console.error('Error al obtener KWH IMP de medianoche:', err);
       setMidnightKWH(null);
@@ -283,13 +305,8 @@ export default function DataLogger() {
 
   const fetchComponentStatus = async () => {
     try {
-      const response = await axios.get(
-        `http://tegus.arrayanhn.com:3001/api/chiller/component-status/${selectedOption}`
-      );
-      
-      if (response.data && response.data.success) {
-        setComponentStatus(response.data.data);
-      }
+      const response = await api.get(`/api/chiller/component-status/${selectedOption}`);
+      if (response.data && response.data.success) setComponentStatus(response.data.data);
     } catch (err) {
       console.error('Error al obtener estados de componentes:', err);
       // Reset component status on error
@@ -309,22 +326,27 @@ export default function DataLogger() {
         main_meter_kwh: null,
         hourmeter_water_chiller: null,
         hourmeter_air_chiller: null,
-        temp_central_chilled_water_tank: null,
+        temp_central_chilled_water_tank_top: "INSTALLATION IN PROCESS",
+        temp_central_chilled_water_tank_bottom: "INSTALLATION IN PROCESS",
+        water_level_city_water_tank: "INSTALLATION IN PROCESS",
+        temp_city_water_tank: "INSTALLATION IN PROCESS",
+        water_level_tank1: null,
+        temp_tank1: "INSTALLATION IN PROCESS",
         water_level_tank2: null,
-        temp_tank2: null,
-        date: null
+        temp_tank2: "INSTALLATION IN PROCESS",
+        water_level_tank3: null,
+        temp_tank3: "INSTALLATION IN PROCESS",
+        cycles_water_chiller: null,
+        cycles_air_chiller: null,
+        date: null,
+        next_day: null
       });
       return;
     }
 
     try {
-      const response = await axios.get(
-        `http://tegus.arrayanhn.com:3001/api/chiller/summary-bitacora?date=${dateFilter}`
-      );
-      
-      if (response.data && response.data.success) {
-        setSummaryData(response.data.data);
-      }
+      const response = await api.get(`/api/chiller/summary-bitacora?date=${dateFilter}`);
+      if (response.data && response.data.success) setSummaryData(response.data.data);
     } catch (err) {
       console.error('Error al obtener datos del resumen bitácora:', err);
       setSummaryData({
@@ -340,20 +362,36 @@ export default function DataLogger() {
   };
 
   useEffect(() => {
+    setError(null);
+
     if (selectedOption === 'resumen_bitacora') {
       fetchSummaryData();
-    } else {
-      fetchData();
-      if (selectedOption === 'chiller_aire_segundos' || selectedOption === 'chiller_agua_segundos') {
-        fetchSensorUptime();
-        fetchComponentStatus();
-      }
-      if (selectedOption === 'chiller_aire_minutos' || selectedOption === 'chiller_agua_minutos') {
-        fetchTemperatureAverages();
-      }
-      if (selectedOption === 'ion_meter_minutos') {
-        fetchMidnightKWH();
-      }
+      return;
+    }
+
+    fetchData();
+
+    // ✅ ORIGINAL + NUEVAS TABLAS (enfriado) SOLO para uptime
+    if (
+      selectedOption === 'chiller_aire_segundos' ||
+      selectedOption === 'chiller_agua_segundos' ||
+      selectedOption === 'chiller_enfriado_aire_segundos' ||
+      selectedOption === 'chiller_enfriado_agua_segundos'
+    ) {
+      fetchSensorUptime();
+    }
+
+    // (se deja EXACTAMENTE como estaba: component-status solo para legacy)
+    if (selectedOption === 'chiller_aire_segundos' || selectedOption === 'chiller_agua_segundos') {
+      fetchComponentStatus();
+    }
+
+    if (selectedOption === 'chiller_aire_minutos' || selectedOption === 'chiller_agua_minutos') {
+      fetchTemperatureAverages();
+    }
+
+    if (selectedOption === 'ion_meter_minutos') {
+      fetchMidnightKWH();
     }
   }, [selectedOption, dateFilter]);
 
@@ -371,7 +409,7 @@ export default function DataLogger() {
     const totalSeconds = uptimeObj.hours * 3600 + uptimeObj.minutes * 60 + uptimeObj.seconds;
     const totalMinutes = totalSeconds / 60;
     const totalHours = totalSeconds / 3600;
-    
+
     return {
       hours: totalHours.toFixed(3),
       minutes: totalMinutes.toFixed(2),
@@ -383,17 +421,15 @@ export default function DataLogger() {
   // Función para formatear valores de energía
   const formatEnergyValue = (value, unit = '') => {
     if (value === null || value === undefined || isNaN(value)) return 'N/A';
-    
-    // Si la unidad ya es una kilo-unidad, no dividir por 1000
+
     if (unit.startsWith('k')) {
       return `${value % 1 === 0 ? value : value.toFixed(3)} ${unit}`;
     }
 
     // Lógica original para convertir a kilo-unidades si es necesario
     if (Math.abs(value) >= 1000) {
-      return `${(value / 1000) % 1 === 0 ? (value / 1000) : (value / 1000).toFixed(3)} k${unit}`;
-    } else {
-      return `${value % 1 === 0 ? value : value.toFixed(3)} ${unit}`;
+      const k = value / 1000;
+      return `${k % 1 === 0 ? k : k.toFixed(3)} k${unit}`;
     }
   };
 
@@ -417,23 +453,18 @@ export default function DataLogger() {
     }
   };
 
-  // Función para formatear estado ON/OFF
-  const formatStatus = (status) => {
-    return status === 1 ? 'ON' : 'OFF';
-  };
+  const formatStatus = (status) => (status === 1 ? 'ON' : 'OFF');
 
   const formatHeaderText = (text) => {
     // Reemplazar guiones bajos con espacios y convertir a mayúsculas
     const words = text.replace(/_/g, ' ').toUpperCase().split(' ');
     
     if (words.length <= 2) return words.join(' ');
-    
-    // Para "PRESION ENTRADA COMPRESOR PSI" -> "PRESION ENTRADA\nCOMPRESOR PSI"
-    // Para "TEMP ENTRADA EVAPORADOR C" -> "TEMP ENTRADA\nEVAPORADOR C"
+
     const midPoint = Math.ceil(words.length / 2);
     const firstLine = words.slice(0, midPoint).join(' ');
     const secondLine = words.slice(midPoint).join(' ');
-    
+
     return (
       <>
         <div>{firstLine}</div>
@@ -469,16 +500,21 @@ export default function DataLogger() {
 
   const renderTableHeaders = () => {
     if (data.length === 0) return null;
-    const headers = Object.keys(data[0])
-      .filter(key => key !== 'id' && key !== 'chiller_id' && (selectedOption === 'ion_meter_minutos' ? key !== 'meter_id' : true));
+
+    const headers = Object.keys(data[0]).filter(
+      key => key !== 'id' && key !== 'chiller_id' && (selectedOption === 'ion_meter_minutos' ? key !== 'meter_id' : true)
+    );
+
     return (
       <tr>
         {headers.map(header => (
-          <th 
-            key={header} 
+          <th
+            key={header}
             className="px-6 py-2 text-center sticky top-0 bg-gradient-to-b from-blue-600 to-blue-700 text-white font-semibold text-xs uppercase tracking-wider"
           >
-            {selectedOption === 'ion_meter_minutos' ? header.toUpperCase().replace(/_/g, ' ') : formatHeaderText(header)}
+            {selectedOption === 'ion_meter_minutos'
+              ? header.toUpperCase().replace(/_/g, ' ')
+              : formatHeaderText(header)}
           </th>
         ))}
       </tr>
@@ -486,55 +522,47 @@ export default function DataLogger() {
   };
 
   const renderTableRows = () => {
-    return data.map((row, index) => (
-      <tr 
-        key={row.id} 
-        className={`
-          border-b border-gray-200 hover:bg-blue-50 transition-colors
-          ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
-        `}
-      >
-        {Object.entries(row).map(([key, value]) => {
-          if (key === 'id' || key === 'chiller_id' || (selectedOption === 'ion_meter_minutos' && key === 'meter_id')) return null;
-          
-          // Determinar si es un valor numérico (excepto fecha_hora)
-          const isNumeric = key !== 'fecha_hora' && !isNaN(value);
-          
-          // Formatear valores específicos del medidor ION
-          let displayValue = value;
-          if (selectedOption === 'ion_meter_minutos' && isNumeric) {
-            if (key.startsWith('kwh_')) {
-              displayValue = formatEnergyValue(value, 'kWh');
-            } else if (key.startsWith('kvarh_')) {
-              displayValue = formatEnergyValue(value, 'kVarh');
-            } else if (key.startsWith('kvah_')) {
-              displayValue = formatEnergyValue(value, 'kVAh');
-            } else if (key === 'freq') {
-              displayValue = value !== null && value !== undefined ? `${value.toFixed(2)} Hz` : 'N/A';
-            } else if (key.startsWith('vln_')) {
-              displayValue = value !== null && value !== undefined ? `${value.toFixed(2)} V` : 'N/A';
-            } else if (key.startsWith('i')) {
-              displayValue = value !== null && value !== undefined ? `${value.toFixed(2)} A` : 'N/A';
-            } else if (key === 'pf') {
-              displayValue = value !== null && value !== undefined ? value.toFixed(3) : 'N/A';
+    return data.map((row, index) => {
+      const rowKey = row.id ?? row.fecha_hora ?? index;
+
+      return (
+        <tr
+          key={rowKey}
+          className={`
+            border-b border-gray-200 hover:bg-blue-50 transition-colors
+            ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
+          `}
+        >
+          {Object.entries(row).map(([key, value]) => {
+            if (key === 'id' || key === 'chiller_id' || (selectedOption === 'ion_meter_minutos' && key === 'meter_id')) return null;
+
+            const isNumeric = key !== 'fecha_hora' && !isNaN(value);
+
+            let displayValue = value;
+            if (selectedOption === 'ion_meter_minutos' && isNumeric) {
+              if (key.startsWith('kwh_')) displayValue = formatEnergyValue(value, 'kWh');
+              else if (key.startsWith('kvarh_')) displayValue = formatEnergyValue(value, 'kVarh');
+              else if (key.startsWith('kvah_')) displayValue = formatEnergyValue(value, 'kVAh');
+              else if (key === 'freq') displayValue = value != null ? `${Number(value).toFixed(2)} Hz` : 'N/A';
+              else if (key.startsWith('vln_')) displayValue = value != null ? `${Number(value).toFixed(2)} V` : 'N/A';
+              else if (key.startsWith('i')) displayValue = value != null ? `${Number(value).toFixed(2)} A` : 'N/A';
+              else if (key === 'pf') displayValue = value != null ? Number(value).toFixed(3) : 'N/A';
             }
-          }
-          
-          return (
-            <td 
-              key={key} 
-              className={`px-6 py-2 whitespace-nowrap ${
-                isNumeric 
-                  ? 'text-center font-mono text-gray-700' 
-                  : 'text-center text-gray-800'
-              }`}
-            >
-              {key === 'fecha_hora' ? formatDateTime(value) : displayValue}
-            </td>
-          );
-        })}
-      </tr>
-    ));
+
+            return (
+              <td
+                key={key}
+                className={`px-6 py-2 whitespace-nowrap ${
+                  isNumeric ? 'text-center font-mono text-gray-700' : 'text-center text-gray-800'
+                }`}
+              >
+                {key === 'fecha_hora' ? formatDateTime(value) : displayValue}
+              </td>
+            );
+          })}
+        </tr>
+      );
+    });
   };
 
   return (
@@ -550,9 +578,7 @@ export default function DataLogger() {
             <select
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={selectedOption}
-              onChange={e => {
-                setSelectedOption(e.target.value);
-              }}
+              onChange={e => setSelectedOption(e.target.value)}
             >
               {opciones.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -569,18 +595,16 @@ export default function DataLogger() {
               type="date"
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={dateFilter}
-              onChange={e => {
-                setDateFilter(e.target.value);
-              }}
+              onChange={e => setDateFilter(e.target.value)}
             />
           </div>
 
-          {/* Botones de acciones */}
+          {/* Botones */}
           <div className="flex items-end gap-2">
             <button
               onClick={fetchData}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={loading || !dateFilter}
+              disabled={loading || !dateFilter || selectedOption === 'resumen_bitacora'}
             >
               {loading ? 'Cargando...' : 'Actualizar'}
             </button>
@@ -588,19 +612,22 @@ export default function DataLogger() {
             <button
               onClick={handleExport}
               className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-400"
-              disabled={exporting || !dateFilter || data.length === 0}
+              disabled={exporting || !dateFilter || data.length === 0 || selectedOption === 'resumen_bitacora'}
             >
               {exporting ? 'Exportando...' : 'Exportar Excel'}
             </button>
           </div>
         </div>
 
-        {/* Sección de tiempo de encendido */}
-        {(selectedOption === 'chiller_aire_segundos' || selectedOption === 'chiller_agua_segundos') && dateFilter && (
+        {/* Tiempo de encendido */}
+        {(selectedOption === 'chiller_aire_segundos' ||
+          selectedOption === 'chiller_agua_segundos' ||
+          selectedOption === 'chiller_enfriado_aire_segundos' ||
+          selectedOption === 'chiller_enfriado_agua_segundos') && dateFilter && (
           <div className="p-6 bg-gradient-to-r from-blue-50 to-green-50 border-b">
             <h3 className="text-xl font-bold text-gray-800 mb-4">Tiempo de Encendido</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {selectedOption === 'chiller_aire_segundos' ? (
+              {(selectedOption === 'chiller_aire_segundos' || selectedOption === 'chiller_enfriado_aire_segundos') ? (
                 <>
                   {/* Chiller enfriado por aire */}
                   <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-blue-500">
@@ -626,7 +653,53 @@ export default function DataLogger() {
 
                   {/* Horómetro bomba de proceso */}
                   <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-green-500">
-                    <h4 className="text-lg font-semibold text-green-700 mb-3">Bomba de proceso (STATUS VDF) </h4>
+                    <h4 className="text-lg font-semibold text-green-700 mb-3">Bomba de proceso (STATUS VDF)</h4>
+                    <div className="space-y-2">
+                      <div className="text-sm text-gray-600">Tiempo encendido:</div>
+                      <div className="space-y-1">
+                        <div className="text-lg font-bold text-green-600">
+                          {formatUptimeDisplay(sensorUptime.pump).hours} Horas
+                        </div>
+                        <div className="text-md font-semibold text-green-500">
+                          {formatUptimeDisplay(sensorUptime.pump).minutes} minutos
+                        </div>
+                        <div className="text-sm font-medium text-green-400">
+                          {formatUptimeDisplay(sensorUptime.pump).seconds} segundos
+                        </div>
+                        <div className="text-xs text-gray-500 mt-2">
+                          ({formatUptimeDisplay(sensorUptime.pump).formatted})
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (selectedOption === 'chiller_enfriado_agua_segundos') ? (
+                <>
+                  {/* Chiller enfriado por agua */}
+                  <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-blue-500">
+                    <h4 className="text-lg font-semibold text-blue-700 mb-3">Chiller enfriado por agua</h4>
+                    <div className="space-y-2">
+                      <div className="text-sm text-gray-600">Tiempo encendido:</div>
+                      <div className="space-y-1">
+                        <div className="text-lg font-bold text-blue-600">
+                          {formatUptimeDisplay(sensorUptime.water).hours} Horas
+                        </div>
+                        <div className="text-md font-semibold text-blue-500">
+                          {formatUptimeDisplay(sensorUptime.water).minutes} minutos
+                        </div>
+                        <div className="text-sm font-medium text-blue-400">
+                          {formatUptimeDisplay(sensorUptime.water).seconds} segundos
+                        </div>
+                        <div className="text-xs text-gray-500 mt-2">
+                          ({formatUptimeDisplay(sensorUptime.water).formatted})
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Horómetro bomba de proceso (nuevo en enfriado agua) */}
+                  <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-green-500">
+                    <h4 className="text-lg font-semibold text-green-700 mb-3">Bomba de proceso (STATUS VDF)</h4>
                     <div className="space-y-2">
                       <div className="text-sm text-gray-600">Tiempo encendido:</div>
                       <div className="space-y-1">
@@ -647,7 +720,7 @@ export default function DataLogger() {
                   </div>
                 </>
               ) : (
-                /* Chiller enfriado por agua */
+                /* chiller_agua_segundos (legacy) */
                 <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-blue-500">
                   <h4 className="text-lg font-semibold text-blue-700 mb-3">Chiller enfriado por agua</h4>
                   <div className="space-y-2">
@@ -673,7 +746,7 @@ export default function DataLogger() {
           </div>
         )}
 
-        {/* Sección de estados de componentes */}
+        {/* Estados de componentes */}
         {(selectedOption === 'chiller_aire_segundos' || selectedOption === 'chiller_agua_segundos') && componentStatus.timestamp && (
           <div className="p-6 bg-gradient-to-r from-purple-50 to-indigo-50 border-b">
             <h3 className="text-xl font-bold text-gray-800 mb-4">Estado Actual de Componentes</h3>
@@ -732,196 +805,128 @@ export default function DataLogger() {
                 </>
               )}
             </div>
+
             <div className="text-xs text-gray-500 mt-4">
               Última actualización: {componentStatus.timestamp ? formatDateTime(componentStatus.timestamp) : 'N/A'}
             </div>
           </div>
         )}
 
-        {/* Sección de promedios de temperatura */}
+        {/* Promedios de temperatura */}
         {(selectedOption === 'chiller_aire_minutos' || selectedOption === 'chiller_agua_minutos') && dateFilter && temperatureAverages.avg_temp_entrada !== null && (
           <div className="p-6 bg-gradient-to-r from-orange-50 to-red-50 border-b">
             <h3 className="text-xl font-bold text-gray-800 mb-4">Temperatura del Día</h3>
-            <div className="grid grid-cols-1 gap-6">
-              <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-orange-500">
-                <h4 className="text-lg font-semibold text-orange-700 mb-3">
-                  {selectedOption === 'chiller_aire_minutos' ? 'Chiller enfriado por aire' : 'Chiller enfriado por agua'}
-                </h4>
-                <div className="space-y-2">
-                  <div className="text-md text-gray-700 font-medium">
-                    Temperatura del día {formatDisplayDate(dateFilter)}:
+
+            <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-orange-500">
+              <h4 className="text-lg font-semibold text-orange-700 mb-3">
+                {selectedOption === 'chiller_aire_minutos' ? 'Chiller enfriado por aire' : 'Chiller enfriado por agua'}
+              </h4>
+
+              <div className="space-y-1">
+                <div className="text-md text-gray-700 font-medium">
+                  Temperatura del día {formatDisplayDate(dateFilter)}:
+                </div>
+                <div className="text-lg font-semibold text-orange-600">
+                  Entrada al evaporador: {temperatureAverages.avg_temp_entrada}°C
+                </div>
+                <div className="text-lg font-semibold text-red-600">
+                  Salida del evaporador: {temperatureAverages.avg_temp_salida}°C
+                </div>
+
+                {selectedOption === 'chiller_agua_minutos' && temperatureAverages.avg_temp_cisterna2 !== null && (
+                  <div className="text-lg font-semibold text-cyan-600">
+                    Temperatura Cisterna 2: {temperatureAverages.avg_temp_cisterna2}°C
                   </div>
-                  <div className="space-y-1">
-                    <div className="text-lg font-semibold text-orange-600">
-                      Entrada al evaporador: {temperatureAverages.avg_temp_entrada}°C
-                    </div>
-                    <div className="text-lg font-semibold text-red-600">
-                      Salida del evaporador: {temperatureAverages.avg_temp_salida}°C
-                    </div>
-                    {selectedOption === 'chiller_agua_minutos' && temperatureAverages.avg_temp_cisterna2 !== null && (
-                      <div className="text-lg font-semibold text-cyan-600">
-                        Temperatura Cisterna 2: {temperatureAverages.avg_temp_cisterna2}°C
-                      </div>
-                    )}
-                    <div className="text-xs text-gray-500 mt-3">
-                      Basado en {temperatureAverages.total_records} registros del día
-                    </div>
-                  </div>
+                )}
+
+                <div className="text-xs text-gray-500 mt-3">
+                  Basado en {temperatureAverages.total_records} registros del día
                 </div>
               </div>
             </div>
           </div>
         )}
 
-         {/* Sección de KWH IMP de medianoche del medidor ION */}
-         {(selectedOption === 'ion_meter_minutos') && dateFilter && midnightKWH !== null && (
-           <div className="p-6 bg-gradient-to-r from-purple-50 to-indigo-50 border-b">
-             <h3 className="text-xl font-bold text-gray-800 mb-4">KWH IMP de Medianoche</h3>
-             <div className="grid grid-cols-1 gap-6">
-               <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-purple-500">
-                 <h4 className="text-lg font-semibold text-purple-700 mb-3">
-                   Medidor Ion - {formatDisplayDate(dateFilter)}
-                 </h4>
-                 <div className="space-y-2">
-                   <div className="text-md text-gray-700 font-medium">
-                     KWH IMP: 
-                   </div>
-                   <div className="text-lg font-semibold text-purple-600">
-                     {midnightKWH !== null && !isNaN(midnightKWH) ? `${midnightKWH} kWh` : 'N/A'}
-                   </div>
-                 </div>
-               </div>
-             </div>
-           </div>
-         )}
+        {/* KWH IMP medianoche */}
+        {selectedOption === 'ion_meter_minutos' && dateFilter && midnightKWH !== null && (
+          <div className="p-6 bg-gradient-to-r from-purple-50 to-indigo-50 border-b">
+            <h3 className="text-xl font-bold text-gray-800 mb-4">KWH IMP de Medianoche</h3>
+            <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-purple-500">
+              <h4 className="text-lg font-semibold text-purple-700 mb-3">
+                Medidor Ion - {formatDisplayDate(dateFilter)}
+              </h4>
+              <div className="text-lg font-semibold text-purple-600">
+                {midnightKWH !== null && !isNaN(midnightKWH) ? `${midnightKWH} kWh` : 'N/A'}
+              </div>
+            </div>
+          </div>
+        )}
 
-         {/* Mensaje cuando no hay datos de energía disponibles */}
-         {(selectedOption === 'ion_meter_minutos') && dateFilter && midnightKWH === null && (
-           <div className="p-6 bg-gradient-to-r from-yellow-50 to-orange-50 border-b">
-             <div className="text-center text-yellow-700">
-               <h3 className="text-lg font-semibold mb-2">No hay datos de KWH IMP de medianoche disponibles</h3>
-               <p className="text-sm">No se encontró registro de KWH IMP para la medianoche de la fecha {formatDisplayDate(dateFilter)}</p>
-             </div>
-           </div>
-         )}
+        {selectedOption === 'ion_meter_minutos' && dateFilter && midnightKWH === null && (
+          <div className="p-6 bg-gradient-to-r from-yellow-50 to-orange-50 border-b">
+            <div className="text-center text-yellow-700">
+              <h3 className="text-lg font-semibold mb-2">No hay datos de KWH IMP de medianoche disponibles</h3>
+              <p className="text-sm">No se encontró registro de KWH IMP para la medianoche de la fecha {formatDisplayDate(dateFilter)}</p>
+            </div>
+          </div>
+        )}
 
-         {/* Sección de Resumen Bitácora */}
-         {(selectedOption === 'resumen_bitacora') && dateFilter && (
-           <div className="p-6 bg-gradient-to-r from-blue-50 to-cyan-50 border-b">
-             <h3 className="text-xl font-bold text-gray-800 mb-6">Resumen Bitácora - {formatDisplayDate(dateFilter)}</h3>
-             <div className="max-w-2xl mx-auto">
-               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-                 
-                 {/* Main Meter ION7300 kWh */}
-                 <div className="flex items-center p-4 border-b border-gray-200 hover:bg-gray-50">
-                   <div className="w-1 h-12 bg-blue-500 rounded-full mr-4"></div>
-                   <div>
-                     <h4 className="text-md font-semibold text-gray-800 inline">
-                       Main Meter ION7300 kWh – Copenergy SA
-                     </h4>
-                     <span className="text-xl font-bold text-blue-600 ml-4">
-                       {summaryData.main_meter_kwh !== null && !isNaN(summaryData.main_meter_kwh) ? 
-                         summaryData.main_meter_kwh : 'N/A'}
-                     </span>
-                     <p className="text-sm text-gray-600">({getNextDayDate(dateFilter)})</p>
-                   </div>
-                 </div>
+        {/* Resumen Bitácora */}
+        {selectedOption === 'resumen_bitacora' && dateFilter && (
+          <div className="p-6 bg-gradient-to-r from-blue-50 to-cyan-50 border-b overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+            <h3 className="text-xl font-bold text-gray-800 mb-6">Resumen Bitácora - {formatDisplayDate(dateFilter)}</h3>
 
-                 {/* Hourmeter - Water Chiller */}
-                 <div className="flex items-center p-4 border-b border-gray-200 hover:bg-gray-50">
-                   <div className="w-1 h-12 bg-green-500 rounded-full mr-4"></div>
-                   <div>
-                     <h4 className="text-md font-semibold text-gray-800 inline">
-                       Hourmeter - Water Chiller
-                     </h4>
-                     <span className="text-xl font-bold text-green-600 ml-4">
-                       {summaryData.hourmeter_water_chiller !== null && !isNaN(summaryData.hourmeter_water_chiller) ? 
-                         summaryData.hourmeter_water_chiller : 'N/A'}
-                     </span>
-                     <p className="text-sm text-gray-600">Tiempo de operación del día</p>
-                   </div>
-                 </div>
+            <div className="max-w-4xl mx-auto mb-6">
+              <div className="bg-white rounded-lg shadow-lg p-4">
+                <h4 className="text-md font-semibold text-gray-800">Main Meter ION7300 kWh – Copenergy SA</h4>
+                <p className="text-2xl font-bold text-blue-600">{summaryData.main_meter_kwh ?? 'N/A'}</p>
+                <p className="text-sm text-gray-500">Corresponde a las 00:00 del día {getNextDayDate(dateFilter)}</p>
+              </div>
+            </div>
 
-                 {/* Hourmeter - Air Chiller */}
-                 <div className="flex items-center p-4 border-b border-gray-200 hover:bg-gray-50">
-                   <div className="w-1 h-12 bg-purple-500 rounded-full mr-4"></div>
-                   <div>
-                     <h4 className="text-md font-semibold text-gray-800 inline">
-                       Hourmeter - Air Chiller
-                     </h4>
-                     <span className="text-xl font-bold text-purple-600 ml-4">
-                       {summaryData.hourmeter_air_chiller !== null && !isNaN(summaryData.hourmeter_air_chiller) ? 
-                         summaryData.hourmeter_air_chiller : 'N/A'}
-                     </span>
-                     <p className="text-sm text-gray-600">Tiempo de operación del día</p>
-                   </div>
-                 </div>
+            <div className="max-w-4xl mx-auto">
+              <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                <table className="min-w-full">
+                  <thead className="bg-gray-200">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Campo</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {Object.entries(summaryData)
+                      .filter(([key]) => key !== 'date' && key !== 'next_day' && key !== 'main_meter_kwh')
+                      .map(([key, value]) => {
+                        const label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        return (
+                          <tr key={key}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{label}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-800">{value ?? 'N/A'}</td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
 
-                 {/* Temp °C – Central Chilled Water Tank (Bottom) */}
-                 <div className="flex items-center p-4 border-b border-gray-200 hover:bg-gray-50">
-                   <div className="w-1 h-12 bg-orange-500 rounded-full mr-4"></div>
-                   <div>
-                     <h4 className="text-md font-semibold text-gray-800 inline">
-                       Temp °C – Central Chilled Water Tank (Bottom)
-                     </h4>
-                     <span className="text-xl font-bold text-orange-600 ml-4">
-                       {summaryData.temp_central_chilled_water_tank !== null && !isNaN(summaryData.temp_central_chilled_water_tank) ? 
-                         summaryData.temp_central_chilled_water_tank : 'N/A'}
-                     </span>
-                     <p className="text-sm text-gray-600">Promedio del día</p>
-                   </div>
-                 </div>
-
-                 {/* Water Level – Tank 2 */}
-                 <div className="flex items-center p-4 border-b border-gray-200 hover:bg-gray-50">
-                   <div className="w-1 h-12 bg-cyan-500 rounded-full mr-4"></div>
-                   <div>
-                     <h4 className="text-md font-semibold text-gray-800 inline">
-                       Water Level – Tank 2
-                     </h4>
-                     <span className="text-xl font-bold text-cyan-600 ml-4">
-                       {summaryData.water_level_tank2 !== null && !isNaN(summaryData.water_level_tank2) ? 
-                         summaryData.water_level_tank2 : 'N/A'}
-                     </span>
-                     <p className="text-sm text-gray-600">Último registro del día</p>
-                   </div>
-                 </div>
-
-                 {/* Temp °C – Tank 2 */}
-                 <div className="flex items-center p-4 hover:bg-gray-50">
-                   <div className="w-1 h-12 bg-red-500 rounded-full mr-4"></div>
-                   <div>
-                     <h4 className="text-md font-semibold text-gray-800 inline">
-                       Temp °C – Tank 2
-                     </h4>
-                     <span className="text-xl font-bold text-red-600 ml-4">
-                       {summaryData.temp_tank2 !== null && !isNaN(summaryData.temp_tank2) ? 
-                         summaryData.temp_tank2 : 'N/A'}
-                     </span>
-                     <p className="text-sm text-gray-600">Último registro del día</p>
-                   </div>
-                 </div>
-
-               </div>
-             </div>
-           </div>
-         )}
-
-         {/* Mensaje cuando no hay fecha seleccionada */}
+        {/* Sin fecha */}
         {!dateFilter && (
           <div className="flex-1 flex items-center justify-center text-gray-500">
             Por favor, seleccione una fecha para ver los registros
           </div>
         )}
 
-        {/* Mensaje de error */}
+        {/* Error */}
         {error && (
           <div className="m-2 p-4 bg-red-100 text-red-700 rounded-md">
             {error}
           </div>
         )}
 
-        {/* Tabla de datos con scroll */}
+        {/* Tabla */}
         {dateFilter && selectedOption !== 'resumen_bitacora' && (
           <div className="flex-1 overflow-hidden">
             <div className="h-full overflow-auto">
