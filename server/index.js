@@ -5,6 +5,10 @@ const path = require('path'); // (no usado, lo dejo por compat)
 const bcrypt = require('bcryptjs'); // (no usado, lo dejo por compat)
 const jwt = require('jsonwebtoken');
 const session = require('express-session');
+const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc');
+dayjs.extend(utc);
+
 
 // Fix for debug package issue
 process.env.DEBUG = '*';
@@ -14,9 +18,14 @@ const ModbusRTU = require('modbus-serial');
 
 const app = express();
 app.use(cors({
-  origin: ['http://tegus.arrayanhn.com:3000', 'http://tegus.arrayanhn.com:3007'],
+  origin: [
+    'http://tegus.arrayanhn.com:3000',
+    'http://tegus.arrayanhn.com:3007',
+    'http://localhost:3002'
+  ],
   credentials: true
 }));
+
 app.use(express.json());
 
 // Configuración de sesión
@@ -60,11 +69,12 @@ const ALLOWED_DATA_TABLES = [
   'chiller_aire_minutos',
   'chiller_aire_segundos',
   'ion_meter_minutos',
-
-  // ✅ NUEVAS (enfriado)
   'chiller_enfriado_agua_segundos',
   'chiller_enfriado_aire_segundos',
+  'bomba_proceso_minutos',
+  'bomba_proceso_segundos'
 ];
+
 
 const ALLOWED_EXPORT_TABLES = [
   'chiller_aire_minutos',
@@ -1165,6 +1175,249 @@ app.get('/api/chiller/summary-bitacora', async (req, res) => {
     return res.status(500).json({ success: false, message: 'Error al obtener el resumen bitácora' });
   }
 });
+
+// =========================================
+// ✅ DATA MINUTOS POR DÍA (HORA LOCAL)
+// GET /api/chiller/data/bomba/minutos
+// =========================================
+app.get('/api/chiller/data/bomba/minutos', async (req, res) => {
+  try {
+    const { table, date } = req.query;
+
+    if (!table || !date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requieren los parámetros table y date'
+      });
+    }
+
+    if (!ALLOWED_DATA_TABLES.includes(table)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tabla no permitida'
+      });
+    }
+
+    // 🔑 FECHA LOCAL (BD ya está en hora local)
+    const startOfDay = `${date} 00:00:00`;
+    const endOfDay = `${date} 23:59:59`;
+
+    const query = `
+  SELECT
+    id,
+    chiller_id,
+    DATE_FORMAT(fecha_hora, '%Y-%m-%d %H:%i:%s') AS fecha_hora,
+    consumo_bomba_proceso
+  FROM ${table}
+  WHERE fecha_hora >= ? AND fecha_hora <= ?
+  ORDER BY fecha_hora DESC
+`;
+
+
+    const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
+
+    return res.json({
+      success: true,
+      table,
+      date,
+      timezone: 'America/Tegucigalpa (UTC-6)',
+      local_range: { startOfDay, endOfDay },
+      total_records: rows.length,
+      data: rows
+    });
+
+  } catch (error) {
+    console.error('Error en /api/chiller/data/bomba/minutos:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener los datos de minutos'
+    });
+  }
+});
+
+
+// =========================================
+// ✅ PROMEDIO (y total) POR DÍA - BOMBA PROCESO
+// GET /api/chiller/data/bomba/minutos/avg?table=...&date=YYYY-MM-DD
+// =========================================
+app.get("/api/chiller/data/bomba/minutos/avg", async (req, res) => {
+  try {
+    const { table, date } = req.query;
+
+    if (!table || !date) {
+      return res.status(400).json({
+        success: false,
+        message: "Se requieren los parámetros table y date",
+      });
+    }
+
+    if (!ALLOWED_DATA_TABLES.includes(table)) {
+      return res.status(400).json({
+        success: false,
+        message: "Tabla no permitida",
+      });
+    }
+
+    const startOfDay = `${date} 00:00:00`;
+    const endOfDay = `${date} 23:59:59`;
+
+    // OJO: casteo a DECIMAL por si viene como string
+    const query = `
+      SELECT
+        COUNT(*) AS total_records,
+        AVG(CAST(consumo_bomba_proceso AS DECIMAL(18,4))) AS consumo_promedio,
+        SUM(CAST(consumo_bomba_proceso AS DECIMAL(18,4))) AS consumo_total
+      FROM ${table}
+      WHERE fecha_hora >= ? AND fecha_hora <= ?
+    `;
+
+    const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
+
+    const total_records = Number(rows?.[0]?.total_records || 0);
+    const consumo_promedio = rows?.[0]?.consumo_promedio;
+    const consumo_total = rows?.[0]?.consumo_total;
+
+    return res.json({
+      success: true,
+      table,
+      date,
+      total_records,
+      consumo_promedio: consumo_promedio != null ? Number(consumo_promedio) : null,
+      consumo_total: consumo_total != null ? Number(consumo_total) : null,
+    });
+  } catch (error) {
+    console.error("Error en /api/chiller/data/bomba/minutos/avg:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error al calcular el promedio del día",
+    });
+  }
+});
+
+
+// =========================================
+// ✅ DATA SEGUNDOS POR DÍA (HORA LOCAL)
+// GET /api/chiller/data/bomba/segundos
+// =========================================
+app.get('/api/chiller/data/bomba/segundos', async (req, res) => {
+  try {
+    const { table, date } = req.query;
+
+    console.log('tabla', table, date);
+    console.log('DEBUG allowed?', ALLOWED_DATA_TABLES.includes(table));
+    console.log('DEBUG ALLOWED_DATA_TABLES:', ALLOWED_DATA_TABLES);
+    console.log('DEBUG table raw:', JSON.stringify(table));
+
+    if (!table || !date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requieren los parámetros table y date'
+      });
+    }
+
+    if (!ALLOWED_DATA_TABLES.includes(table)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tabla no permitida'
+      });
+    }
+
+    // 🔑 FECHA LOCAL (BD ya está en hora local)
+    const startOfDay = `${date} 00:00:00`;
+    const endOfDay = `${date} 23:59:59`;
+
+    const query = `
+  SELECT
+    id,
+    chiller_id,
+    DATE_FORMAT(fecha_hora, '%Y-%m-%d %H:%i:%s') AS fecha_hora,
+    consumo_bomba_proceso
+  FROM ${table}
+  WHERE fecha_hora >= ? AND fecha_hora <= ?
+  ORDER BY fecha_hora DESC
+`;
+
+
+    const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
+
+    return res.json({
+      success: true,
+      table,
+      date,
+      timezone: 'America/Tegucigalpa (UTC-6)',
+      local_range: { startOfDay, endOfDay },
+      total_records: rows.length,
+      data: rows
+    });
+
+  } catch (error) {
+    console.error('Error en /api/chiller/data/bomba/segundos:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener los datos de segundos'
+    });
+  }
+});
+
+
+// =========================================
+// ✅ PROMEDIO (y total) POR DÍA - BOMBA PROCESO (SEGUNDOS)
+// GET /api/chiller/data/bomba/segundos/avg?table=...&date=YYYY-MM-DD
+// =========================================
+app.get("/api/chiller/data/bomba/segundos/avg", async (req, res) => {
+  try {
+    const { table, date } = req.query;
+
+    if (!table || !date) {
+      return res.status(400).json({
+        success: false,
+        message: "Se requieren los parámetros table y date",
+      });
+    }
+
+    if (!ALLOWED_DATA_TABLES.includes(table)) {
+      return res.status(400).json({
+        success: false,
+        message: "Tabla no permitida",
+      });
+    }
+
+    const startOfDay = `${date} 00:00:00`;
+    const endOfDay = `${date} 23:59:59`;
+
+    const query = `
+      SELECT
+        COUNT(*) AS total_records,
+        AVG(CAST(consumo_bomba_proceso AS DECIMAL(18,4))) AS consumo_promedio,
+        SUM(CAST(consumo_bomba_proceso AS DECIMAL(18,4))) AS consumo_total
+      FROM ${table}
+      WHERE fecha_hora >= ? AND fecha_hora <= ?
+    `;
+
+    const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
+
+    const total_records = Number(rows?.[0]?.total_records || 0);
+    const consumo_promedio = rows?.[0]?.consumo_promedio;
+    const consumo_total = rows?.[0]?.consumo_total;
+
+    return res.json({
+      success: true,
+      table,
+      date,
+      total_records,
+      consumo_promedio: consumo_promedio != null ? Number(consumo_promedio) : null,
+      consumo_total: consumo_total != null ? Number(consumo_total) : null,
+    });
+  } catch (error) {
+    console.error("Error en /api/chiller/data/bomba/segundos/avg:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error al calcular el promedio del día (segundos)",
+    });
+  }
+});
+
+
 
 const PORT = 3001;
 app.listen(PORT, '0.0.0.0', () => {

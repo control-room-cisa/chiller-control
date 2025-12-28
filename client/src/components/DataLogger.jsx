@@ -241,14 +241,14 @@ export default function DataLogger() {
       const response = await axios.get(
         `http://tegus.arrayanhn.com:3001/api/chiller/energy-averages/${selectedOption}?date=${dateFilter}`
       );
-      
+
       if (response.data && response.data.success) {
         // Asegurar que todos los valores numéricos sean números válidos
         const data = response.data.data;
         console.log('Datos de energía recibidos del servidor:', data);
-        
+
         const sanitizedData = {};
-        
+
         Object.keys(data).forEach(key => {
           if (key === 'date' || key === 'table' || key === 'total_records') {
             sanitizedData[key] = data[key];
@@ -258,7 +258,7 @@ export default function DataLogger() {
             sanitizedData[key] = isNaN(numValue) ? null : numValue;
           }
         });
-        
+
         console.log('Datos de energía sanitizados:', sanitizedData);
         // setEnergyAverages(sanitizedData); // This line is removed
       }
@@ -431,6 +431,7 @@ export default function DataLogger() {
       const k = value / 1000;
       return `${k % 1 === 0 ? k : k.toFixed(3)} k${unit}`;
     }
+    return `${value} ${unit}`.trim();
   };
 
   // Función para formatear la fecha en formato DD/M/YYYY
@@ -458,7 +459,7 @@ export default function DataLogger() {
   const formatHeaderText = (text) => {
     // Reemplazar guiones bajos con espacios y convertir a mayúsculas
     const words = text.replace(/_/g, ' ').toUpperCase().split(' ');
-    
+
     if (words.length <= 2) return words.join(' ');
 
     const midPoint = Math.ceil(words.length / 2);
@@ -494,7 +495,7 @@ export default function DataLogger() {
       'ib': 'CORRIENTE B',
       'pf': 'FACTOR POT'
     };
-    
+
     return headerMappings[text] || text.replace(/_/g, ' ').toUpperCase();
   };
 
@@ -552,9 +553,8 @@ export default function DataLogger() {
             return (
               <td
                 key={key}
-                className={`px-6 py-2 whitespace-nowrap ${
-                  isNumeric ? 'text-center font-mono text-gray-700' : 'text-center text-gray-800'
-                }`}
+                className={`px-6 py-2 whitespace-nowrap ${isNumeric ? 'text-center font-mono text-gray-700' : 'text-center text-gray-800'
+                  }`}
               >
                 {key === 'fecha_hora' ? formatDateTime(value) : displayValue}
               </td>
@@ -624,58 +624,103 @@ export default function DataLogger() {
           selectedOption === 'chiller_agua_segundos' ||
           selectedOption === 'chiller_enfriado_aire_segundos' ||
           selectedOption === 'chiller_enfriado_agua_segundos') && dateFilter && (
-          <div className="p-6 bg-gradient-to-r from-blue-50 to-green-50 border-b">
-            <h3 className="text-xl font-bold text-gray-800 mb-4">Tiempo de Encendido</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {(selectedOption === 'chiller_aire_segundos' || selectedOption === 'chiller_enfriado_aire_segundos') ? (
-                <>
-                  {/* Chiller enfriado por aire */}
-                  <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-blue-500">
-                    <h4 className="text-lg font-semibold text-blue-700 mb-3">Chiller enfriado por aire</h4>
-                    <div className="space-y-2">
-                      <div className="text-sm text-gray-600">Tiempo encendido:</div>
-                      <div className="space-y-1">
-                        <div className="text-lg font-bold text-blue-600">
-                          {formatUptimeDisplay(sensorUptime.air).hours} Horas
-                        </div>
-                        <div className="text-md font-semibold text-blue-500">
-                          {formatUptimeDisplay(sensorUptime.air).minutes} minutos
-                        </div>
-                        <div className="text-sm font-medium text-blue-400">
-                          {formatUptimeDisplay(sensorUptime.air).seconds} segundos
-                        </div>
-                        <div className="text-xs text-gray-500 mt-2">
-                          ({formatUptimeDisplay(sensorUptime.air).formatted})
+            <div className="p-6 bg-gradient-to-r from-blue-50 to-green-50 border-b">
+              <h3 className="text-xl font-bold text-gray-800 mb-4">Tiempo de Encendido</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {(selectedOption === 'chiller_aire_segundos' || selectedOption === 'chiller_enfriado_aire_segundos') ? (
+                  <>
+                    {/* Chiller enfriado por aire */}
+                    <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-blue-500">
+                      <h4 className="text-lg font-semibold text-blue-700 mb-3">Chiller enfriado por aire</h4>
+                      <div className="space-y-2">
+                        <div className="text-sm text-gray-600">Tiempo encendido:</div>
+                        <div className="space-y-1">
+                          <div className="text-lg font-bold text-blue-600">
+                            {formatUptimeDisplay(sensorUptime.air).hours} Horas
+                          </div>
+                          <div className="text-md font-semibold text-blue-500">
+                            {formatUptimeDisplay(sensorUptime.air).minutes} minutos
+                          </div>
+                          <div className="text-sm font-medium text-blue-400">
+                            {formatUptimeDisplay(sensorUptime.air).seconds} segundos
+                          </div>
+                          <div className="text-xs text-gray-500 mt-2">
+                            ({formatUptimeDisplay(sensorUptime.air).formatted})
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Horómetro bomba de proceso */}
-                  <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-green-500">
-                    <h4 className="text-lg font-semibold text-green-700 mb-3">Bomba de proceso (STATUS VDF)</h4>
-                    <div className="space-y-2">
-                      <div className="text-sm text-gray-600">Tiempo encendido:</div>
-                      <div className="space-y-1">
-                        <div className="text-lg font-bold text-green-600">
-                          {formatUptimeDisplay(sensorUptime.pump).hours} Horas
-                        </div>
-                        <div className="text-md font-semibold text-green-500">
-                          {formatUptimeDisplay(sensorUptime.pump).minutes} minutos
-                        </div>
-                        <div className="text-sm font-medium text-green-400">
-                          {formatUptimeDisplay(sensorUptime.pump).seconds} segundos
-                        </div>
-                        <div className="text-xs text-gray-500 mt-2">
-                          ({formatUptimeDisplay(sensorUptime.pump).formatted})
+                    {/* Horómetro bomba de proceso */}
+                    <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-green-500">
+                      <h4 className="text-lg font-semibold text-green-700 mb-3">Bomba de proceso (STATUS VDF)</h4>
+                      <div className="space-y-2">
+                        <div className="text-sm text-gray-600">Tiempo encendido:</div>
+                        <div className="space-y-1">
+                          <div className="text-lg font-bold text-green-600">
+                            {formatUptimeDisplay(sensorUptime.pump).hours} Horas
+                          </div>
+                          <div className="text-md font-semibold text-green-500">
+                            {formatUptimeDisplay(sensorUptime.pump).minutes} minutos
+                          </div>
+                          <div className="text-sm font-medium text-green-400">
+                            {formatUptimeDisplay(sensorUptime.pump).seconds} segundos
+                          </div>
+                          <div className="text-xs text-gray-500 mt-2">
+                            ({formatUptimeDisplay(sensorUptime.pump).formatted})
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </>
-              ) : (selectedOption === 'chiller_enfriado_agua_segundos') ? (
-                <>
-                  {/* Chiller enfriado por agua */}
+                  </>
+                ) : (selectedOption === 'chiller_enfriado_agua_segundos') ? (
+                  <>
+                    {/* Chiller enfriado por agua */}
+                    <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-blue-500">
+                      <h4 className="text-lg font-semibold text-blue-700 mb-3">Chiller enfriado por agua</h4>
+                      <div className="space-y-2">
+                        <div className="text-sm text-gray-600">Tiempo encendido:</div>
+                        <div className="space-y-1">
+                          <div className="text-lg font-bold text-blue-600">
+                            {formatUptimeDisplay(sensorUptime.water).hours} Horas
+                          </div>
+                          <div className="text-md font-semibold text-blue-500">
+                            {formatUptimeDisplay(sensorUptime.water).minutes} minutos
+                          </div>
+                          <div className="text-sm font-medium text-blue-400">
+                            {formatUptimeDisplay(sensorUptime.water).seconds} segundos
+                          </div>
+                          <div className="text-xs text-gray-500 mt-2">
+                            ({formatUptimeDisplay(sensorUptime.water).formatted})
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Horómetro bomba de proceso (nuevo en enfriado agua) */}
+                    <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-green-500">
+                      <h4 className="text-lg font-semibold text-green-700 mb-3">Bomba de proceso (STATUS VDF)</h4>
+                      <div className="space-y-2">
+                        <div className="text-sm text-gray-600">Tiempo encendido:</div>
+                        <div className="space-y-1">
+                          <div className="text-lg font-bold text-green-600">
+                            {formatUptimeDisplay(sensorUptime.pump).hours} Horas
+                          </div>
+                          <div className="text-md font-semibold text-green-500">
+                            {formatUptimeDisplay(sensorUptime.pump).minutes} minutos
+                          </div>
+                          <div className="text-sm font-medium text-green-400">
+                            {formatUptimeDisplay(sensorUptime.pump).seconds} segundos
+                          </div>
+                          <div className="text-xs text-gray-500 mt-2">
+                            ({formatUptimeDisplay(sensorUptime.pump).formatted})
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  /* chiller_agua_segundos (legacy) */
                   <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-blue-500">
                     <h4 className="text-lg font-semibold text-blue-700 mb-3">Chiller enfriado por agua</h4>
                     <div className="space-y-2">
@@ -696,55 +741,10 @@ export default function DataLogger() {
                       </div>
                     </div>
                   </div>
-
-                  {/* Horómetro bomba de proceso (nuevo en enfriado agua) */}
-                  <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-green-500">
-                    <h4 className="text-lg font-semibold text-green-700 mb-3">Bomba de proceso (STATUS VDF)</h4>
-                    <div className="space-y-2">
-                      <div className="text-sm text-gray-600">Tiempo encendido:</div>
-                      <div className="space-y-1">
-                        <div className="text-lg font-bold text-green-600">
-                          {formatUptimeDisplay(sensorUptime.pump).hours} Horas
-                        </div>
-                        <div className="text-md font-semibold text-green-500">
-                          {formatUptimeDisplay(sensorUptime.pump).minutes} minutos
-                        </div>
-                        <div className="text-sm font-medium text-green-400">
-                          {formatUptimeDisplay(sensorUptime.pump).seconds} segundos
-                        </div>
-                        <div className="text-xs text-gray-500 mt-2">
-                          ({formatUptimeDisplay(sensorUptime.pump).formatted})
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                /* chiller_agua_segundos (legacy) */
-                <div className="bg-white p-4 rounded-lg shadow-md border-l-4 border-blue-500">
-                  <h4 className="text-lg font-semibold text-blue-700 mb-3">Chiller enfriado por agua</h4>
-                  <div className="space-y-2">
-                    <div className="text-sm text-gray-600">Tiempo encendido:</div>
-                    <div className="space-y-1">
-                      <div className="text-lg font-bold text-blue-600">
-                        {formatUptimeDisplay(sensorUptime.water).hours} Horas
-                      </div>
-                      <div className="text-md font-semibold text-blue-500">
-                        {formatUptimeDisplay(sensorUptime.water).minutes} minutos
-                      </div>
-                      <div className="text-sm font-medium text-blue-400">
-                        {formatUptimeDisplay(sensorUptime.water).seconds} segundos
-                      </div>
-                      <div className="text-xs text-gray-500 mt-2">
-                        ({formatUptimeDisplay(sensorUptime.water).formatted})
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Estados de componentes */}
         {(selectedOption === 'chiller_aire_segundos' || selectedOption === 'chiller_agua_segundos') && componentStatus.timestamp && (
@@ -897,7 +897,16 @@ export default function DataLogger() {
                     {Object.entries(summaryData)
                       .filter(([key]) => key !== 'date' && key !== 'next_day' && key !== 'main_meter_kwh')
                       .map(([key, value]) => {
-                        const label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        // ✅ SOLO CAMBIO DE LABELS (sin tocar las llaves del backend)
+                        const labelOverrides = {
+                          hourmeter_water_chiller: 'Daily hours of work – Water Chiller',
+                          hourmeter_air_chiller: 'Daily hours of work – Air Chiller',
+                        };
+
+                        const label =
+                          labelOverrides[key] ??
+                          key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
                         return (
                           <tr key={key}>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{label}</td>
