@@ -29,6 +29,8 @@ import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import dayjs from "dayjs";
 import axios from "axios";
 import * as XLSX from "xlsx";
+import { useAuth } from "../context/AuthContext.jsx";
+import Login from "./Login.jsx";
 
 // API call
 const api = axios.create({
@@ -51,6 +53,13 @@ const getConsumoBombaSegundosAvgDia = ({ table, date }) => {
 
 // Main Component
 const ConsumoDataLoger = () => {
+    const { user, isAuthenticated, logout } = useAuth();
+    
+    // Si no está autenticado, mostrar Login
+    if (!isAuthenticated) {
+        return <Login onLogin={() => {}} />;
+    }
+    
     const [fecha, setFecha] = useState(dayjs());
     // ✅ mantener Select pero con default a segundos
     const [dataset, setDataset] = useState("bomba_proceso_segundos");
@@ -195,11 +204,18 @@ const ConsumoDataLoger = () => {
                     <Stack direction="row" spacing={2} alignItems="center">
                         <Chip
                             icon={<WaterIcon />}
-                            label="Chiller Agua / Aire"
+                            label="Chiller Consumo"
                             variant="outlined"
                             sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.6)" }}
                         />
-                        <Button color="inherit" startIcon={<LogoutIcon />}>
+                        <Typography variant="body2" sx={{ color: "#fff" }}>
+                            Bienvenido, <strong>{user?.usuario || "Usuario"}</strong>
+                        </Typography>
+                        <Button 
+                            color="inherit" 
+                            startIcon={<LogoutIcon />}
+                            onClick={logout}
+                        >
                             Cerrar sesión
                         </Button>
                     </Stack>

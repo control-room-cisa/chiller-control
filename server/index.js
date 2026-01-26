@@ -1364,6 +1364,63 @@ app.get('/api/chiller/data/bomba/segundos', async (req, res) => {
 // ✅ PROMEDIO (y total) POR DÍA - BOMBA PROCESO (SEGUNDOS)
 // GET /api/chiller/data/bomba/segundos/avg?table=...&date=YYYY-MM-DD
 // =========================================
+// app.get("/api/chiller/data/bomba/segundos/avg", async (req, res) => {
+//   try {
+//     const { table, date } = req.query;
+
+//     if (!table || !date) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Se requieren los parámetros table y date",
+//       });
+//     }
+
+//     if (!ALLOWED_DATA_TABLES.includes(table)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Tabla no permitida",
+//       });
+//     }
+
+//     const startOfDay = `${date} 00:00:00`;
+//     const endOfDay = `${date} 23:59:59`;
+
+//     const query = `
+//       SELECT
+//         COUNT(*) AS total_records,
+//         AVG(CAST(consumo_bomba_proceso AS DECIMAL(18,4))) AS consumo_promedio,
+//         SUM(CAST(consumo_bomba_proceso AS DECIMAL(18,4))) AS consumo_total
+//       FROM ${table}
+//       WHERE fecha_hora >= ? AND fecha_hora <= ?
+//     `;
+
+//     const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
+
+//     const total_records = Number(rows?.[0]?.total_records || 0);
+//     const consumo_promedio = rows?.[0]?.consumo_promedio;
+//     const consumo_total = rows?.[0]?.consumo_total;
+
+//     return res.json({
+//       success: true,
+//       table,
+//       date,
+//       total_records,
+//       consumo_promedio: consumo_promedio != null ? Number(consumo_promedio) : null,
+//       consumo_total: consumo_total != null ? Number(consumo_total) : null,
+//     });
+//   } catch (error) {
+//     console.error("Error en /api/chiller/data/bomba/segundos/avg:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Error al calcular el promedio del día (segundos)",
+//     });
+//   }
+// });
+
+// =========================================
+// ✅ TOTAL DEL DÍA CONVERTIDO A HORAS (SUMA / 3600)
+// GET /api/chiller/data/bomba/segundos/avg?table=...&date=YYYY-MM-DD
+// =========================================
 app.get("/api/chiller/data/bomba/segundos/avg", async (req, res) => {
   try {
     const { table, date } = req.query;
@@ -1388,8 +1445,7 @@ app.get("/api/chiller/data/bomba/segundos/avg", async (req, res) => {
     const query = `
       SELECT
         COUNT(*) AS total_records,
-        AVG(CAST(consumo_bomba_proceso AS DECIMAL(18,4))) AS consumo_promedio,
-        SUM(CAST(consumo_bomba_proceso AS DECIMAL(18,4))) AS consumo_total
+        SUM(CAST(consumo_bomba_proceso AS DECIMAL(18,4))) / 3600 AS consumo_promedio
       FROM ${table}
       WHERE fecha_hora >= ? AND fecha_hora <= ?
     `;
@@ -1398,24 +1454,23 @@ app.get("/api/chiller/data/bomba/segundos/avg", async (req, res) => {
 
     const total_records = Number(rows?.[0]?.total_records || 0);
     const consumo_promedio = rows?.[0]?.consumo_promedio;
-    const consumo_total = rows?.[0]?.consumo_total;
 
     return res.json({
       success: true,
       table,
       date,
       total_records,
-      consumo_promedio: consumo_promedio != null ? Number(consumo_promedio) : null,
-      consumo_total: consumo_total != null ? Number(consumo_total) : null,
+      consumo_promedio: consumo_promedio != null ? Number(consumo_promedio) : 0,
     });
   } catch (error) {
     console.error("Error en /api/chiller/data/bomba/segundos/avg:", error);
     return res.status(500).json({
       success: false,
-      message: "Error al calcular el promedio del día (segundos)",
+      message: "Error al calcular el total del día convertido a horas",
     });
   }
 });
+
 
 
 
