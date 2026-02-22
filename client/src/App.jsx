@@ -137,8 +137,8 @@ const ChillerControl = () => {
               onClick={handleTurnOn}
               disabled={isOn || isLoading}
               className={`flex-1 py-3 px-6 rounded-lg font-medium text-white ${isOn || isLoading
-                  ? "bg-gray-400 cursor-not-allowed"
-                  : "bg-blue-500 hover:bg-blue-600"
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-blue-500 hover:bg-blue-600"
                 } transition-all flex items-center justify-center shadow`}
             >
               <Power className="mr-2" size={20} />
@@ -149,8 +149,8 @@ const ChillerControl = () => {
               onClick={handleTurnOff}
               disabled={!isOn || isLoading}
               className={`flex-1 py-3 px-6 rounded-lg font-medium text-white ${!isOn || isLoading
-                  ? "bg-gray-400 cursor-not-allowed"
-                  : "bg-orange-500 hover:bg-orange-600"
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-orange-500 hover:bg-orange-600"
                 } transition-all flex items-center justify-center shadow`}
             >
               <Power className="mr-2" size={20} />
@@ -209,6 +209,17 @@ const AppShell = () => {
                   className="inline-flex items-center px-3 py-2 border border-green-300 text-sm leading-4 font-medium rounded-md text-green-700 bg-green-50 hover:bg-green-100"
                 >
                   Control Chiller
+                </button>
+              )}
+
+              {/* RUTA PARA IR A LA INTERFAZ DE CONSUMO */}
+              {location.pathname !== "/consumo" && (
+                <button
+                  onClick={() => navigate("/consumo")}
+                  className="inline-flex items-center px-3 py-2 border border-purple-300 text-sm leading-4 font-medium rounded-md text-purple-700 bg-purple-50 hover:bg-purple-100"
+                >
+                  <Database className="mr-2 h-4 w-4" />
+                  Consumo Chiller
                 </button>
               )}
 

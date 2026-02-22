@@ -21,7 +21,8 @@ app.use(cors({
   origin: [
     'http://tegus.arrayanhn.com:3000',
     'http://tegus.arrayanhn.com:3007',
-    'http://localhost:3002'
+    'http://localhost:3002',
+    'http://192.168.30.18:3007'
   ],
   credentials: true
 }));
@@ -72,7 +73,9 @@ const ALLOWED_DATA_TABLES = [
   'chiller_enfriado_agua_segundos',
   'chiller_enfriado_aire_segundos',
   'bomba_proceso_minutos',
-  'bomba_proceso_segundos'
+  'bomba_proceso_segundos',
+  'consumo_chiller_aire_segundos',  // ← nueva
+  'consumo_chiller_agua_segundos',  // ← nueva
 ];
 
 
@@ -88,7 +91,7 @@ const ALLOWED_EXPORT_TABLES = [
   'chiller_enfriado_aire_segundos',
 ];
 
-// ✅ Para “enfriado” hacemos SELECT explícito (más seguro y consistente)
+// ✅ Para "enfriado" hacemos SELECT explícito (más seguro y consistente)
 const EXPLICIT_COLUMNS_BY_TABLE = {
   chiller_enfriado_agua_segundos: [
     "fecha_hora",
@@ -331,7 +334,6 @@ app.get('/api/chiller/test_modbus_direction', async (req, res) => {
 
 // =======================================================
 // ✅ (Compat) DATA ENFRIADO: /api/chiller/data/enfriado
-//  - para que tu cliente actual NO se rompa si aún usa este endpoint
 // =======================================================
 app.get('/api/chiller/data/enfriado', async (req, res) => {
   try {
@@ -384,7 +386,6 @@ app.get('/api/chiller/data/enfriado', async (req, res) => {
 
 // =======================================================
 // ✅ (Compat) EXPORT ENFRIADO: /api/chiller/export/enfriado
-//  - para que tu cliente actual NO se rompa si aún usa este endpoint
 // =======================================================
 app.get('/api/chiller/export/enfriado', async (req, res) => {
   try {
@@ -823,7 +824,6 @@ app.get('/api/chiller/component-status/:table', async (req, res) => {
 
     let componentStatus = {};
 
-    // Legacy (aire)
     if (table === 'chiller_aire_segundos') {
       componentStatus = {
         compresor: lastRecord.status_compresor || 0,
@@ -832,10 +832,7 @@ app.get('/api/chiller/component-status/:table', async (req, res) => {
         bomba_condensador: 0,
         timestamp: lastRecord.fecha_hora
       };
-    }
-
-    // Legacy (agua)
-    else if (table === 'chiller_agua_segundos') {
+    } else if (table === 'chiller_agua_segundos') {
       componentStatus = {
         compresor: lastRecord.status_compresor || 0,
         bomba_condensador: lastRecord.status_bomba_agua || 0,
@@ -843,25 +840,16 @@ app.get('/api/chiller/component-status/:table', async (req, res) => {
         ventilador: 0,
         timestamp: lastRecord.fecha_hora
       };
-    }
-
-    // Enfriado aire
-    else if (table === 'chiller_enfriado_aire_segundos') {
+    } else if (table === 'chiller_enfriado_aire_segundos') {
       componentStatus = {
-        // Nota: si tu tabla tiene un status_compresor real, cámbialo aquí.
-        // Con lo que tenemos, usamos on_air_status como “equipo encendido”.
         compresor: lastRecord.on_air_status || 0,
         ventilador: lastRecord.vdf_ventilador_status || 0,
         bomba_proceso: lastRecord.vdf_pump_status || 0,
         bomba_condensador: 0,
         timestamp: lastRecord.fecha_hora
       };
-    }
-
-    // Enfriado agua
-    else if (table === 'chiller_enfriado_agua_segundos') {
+    } else if (table === 'chiller_enfriado_agua_segundos') {
       componentStatus = {
-        // Nota: si tu tabla tiene un status_compresor real, cámbialo aquí.
         compresor: lastRecord.on_water_status || 0,
         bomba_condensador: lastRecord.vdf_condensador_status || 0,
         bomba_proceso: lastRecord.vdf_pump_status || 0,
@@ -901,7 +889,6 @@ app.get('/api/chiller/uptime', async (req, res) => {
       return res.status(400).json({ success: false, message: 'table no válida' });
     }
 
-    // Si no mandan table, devolvemos ambos legacy (compat).
     if (!table) {
       const query = `
         SELECT
@@ -917,7 +904,6 @@ app.get('/api/chiller/uptime', async (req, res) => {
       return res.json({ success: true, table: 'legacy', ...results[0] });
     }
 
-    // NUEVA lógica (enfriado aire)
     if (table === 'chiller_enfriado_aire_segundos') {
       const query = `
         SELECT
@@ -930,7 +916,6 @@ app.get('/api/chiller/uptime', async (req, res) => {
       return res.json({ success: true, table, ...rows[0] });
     }
 
-    // NUEVA lógica (enfriado agua)
     if (table === 'chiller_enfriado_agua_segundos') {
       const query = `
         SELECT
@@ -943,7 +928,6 @@ app.get('/api/chiller/uptime', async (req, res) => {
       return res.json({ success: true, table, ...rows[0] });
     }
 
-    // Legacy (aire) por tabla específica
     if (table === 'chiller_aire_segundos') {
       const query = `
         SELECT
@@ -956,7 +940,6 @@ app.get('/api/chiller/uptime', async (req, res) => {
       return res.json({ success: true, table, ...rows[0] });
     }
 
-    // Legacy (agua) por tabla específica
     if (table === 'chiller_agua_segundos') {
       const query = `
         SELECT
@@ -968,7 +951,6 @@ app.get('/api/chiller/uptime', async (req, res) => {
       return res.json({ success: true, table, ...rows[0] });
     }
 
-    // fallback
     return res.status(400).json({ success: false, message: 'table no válida' });
 
   } catch (error) {
@@ -1011,7 +993,7 @@ app.get('/api/chiller/debug-tables', async (req, res) => {
   }
 });
 
-// Resumen bitácora (tu lógica actual)
+// Resumen bitácora
 app.get('/api/chiller/summary-bitacora', async (req, res) => {
   try {
     const { date } = req.query;
@@ -1033,89 +1015,16 @@ app.get('/api/chiller/summary-bitacora', async (req, res) => {
     const startOfDay = `${date} 00:00:00`;
     const endOfDay = `${date} 23:59:59`;
 
-    const kwhQuery = `
-      SELECT kwh_imp
-      FROM ion_meter_minutos
-      WHERE fecha_hora = ?
-      LIMIT 1
-    `;
-
-    const waterUptimeQuery = `
-      SELECT COALESCE(SUM(status_water),0) AS total_segundos
-      FROM chiller_agua_segundos
-      WHERE fecha_hora >= ? AND fecha_hora <= ?
-    `;
-
-    const airUptimeQuery = `
-      SELECT COALESCE(SUM(status_air),0) AS total_segundos
-      FROM chiller_aire_segundos
-      WHERE fecha_hora >= ? AND fecha_hora <= ?
-    `;
-
-    const waterLevelTank1Query = `
-      SELECT level_sensor_tank1
-      FROM chiller_agua_minutos
-      WHERE fecha_hora <= ?
-      ORDER BY fecha_hora DESC
-      LIMIT 1
-    `;
-
-    const waterLevelTank2Query = `
-      SELECT level_sensor_tank2
-      FROM chiller_agua_minutos
-      WHERE fecha_hora <= ?
-      ORDER BY fecha_hora DESC
-      LIMIT 1
-    `;
-
-    const waterLevelTank3Query = `
-      SELECT level_sensor_tank3
-      FROM chiller_agua_minutos
-      WHERE fecha_hora <= ?
-      ORDER BY fecha_hora DESC
-      LIMIT 1
-    `;
-
-    const centralTempsQuery = `
-      SELECT 
-        AVG(temp_top_glycol_c)    AS avg_temp_top,
-        AVG(temp_bottom_glycol_c) AS avg_temp_bottom
-      FROM chiller_agua_minutos
-      WHERE DATE(fecha_hora) = ?
-    `;
-
-    const tankTempsQuery = `
-      SELECT 
-        AVG(temp_tank1_c) AS avg_temp_tank1,
-        AVG(temp_tank2_c) AS avg_temp_tank2,
-        AVG(temp_tank3_c) AS avg_temp_tank3
-      FROM chiller_agua_minutos
-      WHERE DATE(fecha_hora) = ?
-    `;
-
-    const waterCyclesQuery = `
-      SELECT COUNT(*) AS ciclos
-      FROM (
-        SELECT 
-          status_water,
-          LAG(status_water) OVER (ORDER BY fecha_hora) AS prev_state
-        FROM chiller_agua_segundos
-        WHERE fecha_hora >= ? AND fecha_hora <= ?
-      ) t
-      WHERE status_water = 1 AND (prev_state = 0 OR prev_state IS NULL);
-    `;
-
-    const airCyclesQuery = `
-      SELECT COUNT(*) AS ciclos
-      FROM (
-        SELECT 
-          status_air,
-          LAG(status_air) OVER (ORDER BY fecha_hora) AS prev_state
-        FROM chiller_aire_segundos
-        WHERE fecha_hora >= ? AND fecha_hora <= ?
-      ) t
-      WHERE status_air = 1 AND (prev_state = 0 OR prev_state IS NULL);
-    `;
+    const kwhQuery = `SELECT kwh_imp FROM ion_meter_minutos WHERE fecha_hora = ? LIMIT 1`;
+    const waterUptimeQuery = `SELECT COALESCE(SUM(status_water),0) AS total_segundos FROM chiller_agua_segundos WHERE fecha_hora >= ? AND fecha_hora <= ?`;
+    const airUptimeQuery = `SELECT COALESCE(SUM(status_air),0) AS total_segundos FROM chiller_aire_segundos WHERE fecha_hora >= ? AND fecha_hora <= ?`;
+    const waterLevelTank1Query = `SELECT level_sensor_tank1 FROM chiller_agua_minutos WHERE fecha_hora <= ? ORDER BY fecha_hora DESC LIMIT 1`;
+    const waterLevelTank2Query = `SELECT level_sensor_tank2 FROM chiller_agua_minutos WHERE fecha_hora <= ? ORDER BY fecha_hora DESC LIMIT 1`;
+    const waterLevelTank3Query = `SELECT level_sensor_tank3 FROM chiller_agua_minutos WHERE fecha_hora <= ? ORDER BY fecha_hora DESC LIMIT 1`;
+    const centralTempsQuery = `SELECT AVG(temp_top_glycol_c) AS avg_temp_top, AVG(temp_bottom_glycol_c) AS avg_temp_bottom FROM chiller_agua_minutos WHERE DATE(fecha_hora) = ?`;
+    const tankTempsQuery = `SELECT AVG(temp_tank1_c) AS avg_temp_tank1, AVG(temp_tank2_c) AS avg_temp_tank2, AVG(temp_tank3_c) AS avg_temp_tank3 FROM chiller_agua_minutos WHERE DATE(fecha_hora) = ?`;
+    const waterCyclesQuery = `SELECT COUNT(*) AS ciclos FROM (SELECT status_water, LAG(status_water) OVER (ORDER BY fecha_hora) AS prev_state FROM chiller_agua_segundos WHERE fecha_hora >= ? AND fecha_hora <= ?) t WHERE status_water = 1 AND (prev_state = 0 OR prev_state IS NULL)`;
+    const airCyclesQuery = `SELECT COUNT(*) AS ciclos FROM (SELECT status_air, LAG(status_air) OVER (ORDER BY fecha_hora) AS prev_state FROM chiller_aire_segundos WHERE fecha_hora >= ? AND fecha_hora <= ?) t WHERE status_air = 1 AND (prev_state = 0 OR prev_state IS NULL)`;
 
     const [
       [kwhResults],
@@ -1143,27 +1052,20 @@ app.get('/api/chiller/summary-bitacora', async (req, res) => {
 
     const summaryData = {
       main_meter_kwh: (kwhResults.length > 0 && kwhResults[0].kwh_imp != null) ? r2(kwhResults[0].kwh_imp) : null,
-
       hourmeter_water_chiller: r2(Number(waterUptimeResults[0]?.total_segundos || 0) / 3600),
       hourmeter_air_chiller: r2(Number(airUptimeResults[0]?.total_segundos || 0) / 3600),
-
       temp_central_chilled_water_tank_top: r2(centralTempsResults?.[0]?.avg_temp_top),
       temp_central_chilled_water_tank_bottom: r2(centralTempsResults?.[0]?.avg_temp_bottom),
-
       water_level_city_water_tank: "INSTALLATION IN PROCESS",
       temp_city_water_tank: "INSTALLATION IN PROCESS",
-
       water_level_tank1: Number(waterLevelTank1Results[0]?.level_sensor_tank1 || 0).toFixed(2),
       water_level_tank2: Number(waterLevelTank2Results[0]?.level_sensor_tank2 || 0).toFixed(2),
       water_level_tank3: Number(waterLevelTank3Results[0]?.level_sensor_tank3 || 0).toFixed(2),
-
       temp_tank1: r2(tankTempsResults?.[0]?.avg_temp_tank1),
       temp_tank2: r2(tankTempsResults?.[0]?.avg_temp_tank2),
       temp_tank3: r2(tankTempsResults?.[0]?.avg_temp_tank3),
-
       cycles_water_chiller: Number(waterCyclesResults[0]?.ciclos || 0),
       cycles_air_chiller: Number(airCyclesResults[0]?.ciclos || 0),
-
       date,
       next_day: nextDayStr
     };
@@ -1177,7 +1079,7 @@ app.get('/api/chiller/summary-bitacora', async (req, res) => {
 });
 
 // =========================================
-// ✅ DATA MINUTOS POR DÍA (HORA LOCAL)
+// ✅ DATA MINUTOS POR DÍA - BOMBA
 // GET /api/chiller/data/bomba/minutos
 // =========================================
 app.get('/api/chiller/data/bomba/minutos', async (req, res) => {
@@ -1185,34 +1087,26 @@ app.get('/api/chiller/data/bomba/minutos', async (req, res) => {
     const { table, date } = req.query;
 
     if (!table || !date) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requieren los parámetros table y date'
-      });
+      return res.status(400).json({ success: false, message: 'Se requieren los parámetros table y date' });
     }
 
     if (!ALLOWED_DATA_TABLES.includes(table)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tabla no permitida'
-      });
+      return res.status(400).json({ success: false, message: 'Tabla no permitida' });
     }
 
-    // 🔑 FECHA LOCAL (BD ya está en hora local)
     const startOfDay = `${date} 00:00:00`;
     const endOfDay = `${date} 23:59:59`;
 
     const query = `
-  SELECT
-    id,
-    chiller_id,
-    DATE_FORMAT(fecha_hora, '%Y-%m-%d %H:%i:%s') AS fecha_hora,
-    consumo_bomba_proceso
-  FROM ${table}
-  WHERE fecha_hora >= ? AND fecha_hora <= ?
-  ORDER BY fecha_hora DESC
-`;
-
+      SELECT
+        id,
+        chiller_id,
+        DATE_FORMAT(fecha_hora, '%Y-%m-%d %H:%i:%s') AS fecha_hora,
+        consumo_bomba_proceso
+      FROM ${table}
+      WHERE fecha_hora >= ? AND fecha_hora <= ?
+      ORDER BY fecha_hora DESC
+    `;
 
     const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
 
@@ -1228,40 +1122,29 @@ app.get('/api/chiller/data/bomba/minutos', async (req, res) => {
 
   } catch (error) {
     console.error('Error en /api/chiller/data/bomba/minutos:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error al obtener los datos de minutos'
-    });
+    return res.status(500).json({ success: false, message: 'Error al obtener los datos de minutos' });
   }
 });
 
-
 // =========================================
-// ✅ PROMEDIO (y total) POR DÍA - BOMBA PROCESO
-// GET /api/chiller/data/bomba/minutos/avg?table=...&date=YYYY-MM-DD
+// ✅ PROMEDIO POR DÍA - BOMBA MINUTOS
+// GET /api/chiller/data/bomba/minutos/avg
 // =========================================
 app.get("/api/chiller/data/bomba/minutos/avg", async (req, res) => {
   try {
     const { table, date } = req.query;
 
     if (!table || !date) {
-      return res.status(400).json({
-        success: false,
-        message: "Se requieren los parámetros table y date",
-      });
+      return res.status(400).json({ success: false, message: "Se requieren los parámetros table y date" });
     }
 
     if (!ALLOWED_DATA_TABLES.includes(table)) {
-      return res.status(400).json({
-        success: false,
-        message: "Tabla no permitida",
-      });
+      return res.status(400).json({ success: false, message: "Tabla no permitida" });
     }
 
     const startOfDay = `${date} 00:00:00`;
     const endOfDay = `${date} 23:59:59`;
 
-    // OJO: casteo a DECIMAL por si viene como string
     const query = `
       SELECT
         COUNT(*) AS total_records,
@@ -1273,35 +1156,27 @@ app.get("/api/chiller/data/bomba/minutos/avg", async (req, res) => {
 
     const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
 
-    const total_records = Number(rows?.[0]?.total_records || 0);
-    const consumo_promedio = rows?.[0]?.consumo_promedio;
-    const consumo_total = rows?.[0]?.consumo_total;
-
     return res.json({
       success: true,
       table,
       date,
-      total_records,
-      consumo_promedio: consumo_promedio != null ? Number(consumo_promedio) : null,
-      consumo_total: consumo_total != null ? Number(consumo_total) : null,
+      total_records: Number(rows?.[0]?.total_records || 0),
+      consumo_promedio: rows?.[0]?.consumo_promedio != null ? Number(rows[0].consumo_promedio) : null,
+      consumo_total: rows?.[0]?.consumo_total != null ? Number(rows[0].consumo_total) : null,
     });
   } catch (error) {
     console.error("Error en /api/chiller/data/bomba/minutos/avg:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Error al calcular el promedio del día",
-    });
+    return res.status(500).json({ success: false, message: "Error al calcular el promedio del día" });
   }
 });
 
-
 // =========================================
-// ✅ DATA SEGUNDOS POR DÍA (HORA LOCAL)
+// ✅ DATA SEGUNDOS CON PAGINACIÓN - BOMBA
 // GET /api/chiller/data/bomba/segundos
 // =========================================
 app.get('/api/chiller/data/bomba/segundos', async (req, res) => {
   try {
-    const { table, date } = req.query;
+    const { table, date, page = 1, limit = 1000 } = req.query;
 
     console.log('tabla', table, date);
     console.log('DEBUG allowed?', ALLOWED_DATA_TABLES.includes(table));
@@ -1309,36 +1184,32 @@ app.get('/api/chiller/data/bomba/segundos', async (req, res) => {
     console.log('DEBUG table raw:', JSON.stringify(table));
 
     if (!table || !date) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requieren los parámetros table y date'
-      });
+      return res.status(400).json({ success: false, message: 'Se requieren los parámetros table y date' });
     }
 
     if (!ALLOWED_DATA_TABLES.includes(table)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tabla no permitida'
-      });
+      return res.status(400).json({ success: false, message: 'Tabla no permitida' });
     }
 
-    // 🔑 FECHA LOCAL (BD ya está en hora local)
     const startOfDay = `${date} 00:00:00`;
     const endOfDay = `${date} 23:59:59`;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    const query = `
-  SELECT
-    id,
-    chiller_id,
-    DATE_FORMAT(fecha_hora, '%Y-%m-%d %H:%i:%s') AS fecha_hora,
-    consumo_bomba_proceso
-  FROM ${table}
-  WHERE fecha_hora >= ? AND fecha_hora <= ?
-  ORDER BY fecha_hora DESC
-`;
+    const countQuery = `SELECT COUNT(*) as total FROM ${table} WHERE fecha_hora >= ? AND fecha_hora <= ?`;
+    const dataQuery = `
+      SELECT
+        id,
+        chiller_id,
+        DATE_FORMAT(fecha_hora, '%Y-%m-%d %H:%i:%s') AS fecha_hora,
+        consumo_bomba_proceso
+      FROM ${table}
+      WHERE fecha_hora >= ? AND fecha_hora <= ?
+      ORDER BY fecha_hora DESC
+      LIMIT ? OFFSET ?
+    `;
 
-
-    const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
+    const [[{ total }]] = await db.pool.query(countQuery, [startOfDay, endOfDay]);
+    const [rows] = await db.pool.query(dataQuery, [startOfDay, endOfDay, parseInt(limit), offset]);
 
     return res.json({
       success: true,
@@ -1346,97 +1217,33 @@ app.get('/api/chiller/data/bomba/segundos', async (req, res) => {
       date,
       timezone: 'America/Tegucigalpa (UTC-6)',
       local_range: { startOfDay, endOfDay },
-      total_records: rows.length,
+      total_records: total,
+      current_page: parseInt(page),
+      total_pages: Math.ceil(total / parseInt(limit)),
+      records_per_page: parseInt(limit),
       data: rows
     });
 
   } catch (error) {
     console.error('Error en /api/chiller/data/bomba/segundos:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error al obtener los datos de segundos'
-    });
+    return res.status(500).json({ success: false, message: 'Error al obtener los datos de segundos' });
   }
 });
 
-
 // =========================================
-// ✅ PROMEDIO (y total) POR DÍA - BOMBA PROCESO (SEGUNDOS)
-// GET /api/chiller/data/bomba/segundos/avg?table=...&date=YYYY-MM-DD
-// =========================================
-// app.get("/api/chiller/data/bomba/segundos/avg", async (req, res) => {
-//   try {
-//     const { table, date } = req.query;
-
-//     if (!table || !date) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Se requieren los parámetros table y date",
-//       });
-//     }
-
-//     if (!ALLOWED_DATA_TABLES.includes(table)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Tabla no permitida",
-//       });
-//     }
-
-//     const startOfDay = `${date} 00:00:00`;
-//     const endOfDay = `${date} 23:59:59`;
-
-//     const query = `
-//       SELECT
-//         COUNT(*) AS total_records,
-//         AVG(CAST(consumo_bomba_proceso AS DECIMAL(18,4))) AS consumo_promedio,
-//         SUM(CAST(consumo_bomba_proceso AS DECIMAL(18,4))) AS consumo_total
-//       FROM ${table}
-//       WHERE fecha_hora >= ? AND fecha_hora <= ?
-//     `;
-
-//     const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
-
-//     const total_records = Number(rows?.[0]?.total_records || 0);
-//     const consumo_promedio = rows?.[0]?.consumo_promedio;
-//     const consumo_total = rows?.[0]?.consumo_total;
-
-//     return res.json({
-//       success: true,
-//       table,
-//       date,
-//       total_records,
-//       consumo_promedio: consumo_promedio != null ? Number(consumo_promedio) : null,
-//       consumo_total: consumo_total != null ? Number(consumo_total) : null,
-//     });
-//   } catch (error) {
-//     console.error("Error en /api/chiller/data/bomba/segundos/avg:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Error al calcular el promedio del día (segundos)",
-//     });
-//   }
-// });
-
-// =========================================
-// ✅ TOTAL DEL DÍA CONVERTIDO A HORAS (SUMA / 3600)
-// GET /api/chiller/data/bomba/segundos/avg?table=...&date=YYYY-MM-DD
+// ✅ TOTAL DEL DÍA / 3600 - BOMBA SEGUNDOS
+// GET /api/chiller/data/bomba/segundos/avg
 // =========================================
 app.get("/api/chiller/data/bomba/segundos/avg", async (req, res) => {
   try {
     const { table, date } = req.query;
 
     if (!table || !date) {
-      return res.status(400).json({
-        success: false,
-        message: "Se requieren los parámetros table y date",
-      });
+      return res.status(400).json({ success: false, message: "Se requieren los parámetros table y date" });
     }
 
     if (!ALLOWED_DATA_TABLES.includes(table)) {
-      return res.status(400).json({
-        success: false,
-        message: "Tabla no permitida",
-      });
+      return res.status(400).json({ success: false, message: "Tabla no permitida" });
     }
 
     const startOfDay = `${date} 00:00:00`;
@@ -1452,32 +1259,343 @@ app.get("/api/chiller/data/bomba/segundos/avg", async (req, res) => {
 
     const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
 
-    const total_records = Number(rows?.[0]?.total_records || 0);
-    const consumo_promedio = rows?.[0]?.consumo_promedio;
+    return res.json({
+      success: true,
+      table,
+      date,
+      total_records: Number(rows?.[0]?.total_records || 0),
+      consumo_promedio: rows?.[0]?.consumo_promedio != null ? Number(rows[0].consumo_promedio) : 0,
+    });
+  } catch (error) {
+    console.error("Error en /api/chiller/data/bomba/segundos/avg:", error);
+    return res.status(500).json({ success: false, message: "Error al calcular el total del día convertido a horas" });
+  }
+});
+
+// =========================================
+// ✅ EXPORT COMPLETO - BOMBA
+// GET /api/chiller/data/bomba/segundos/export
+// =========================================
+app.get('/api/chiller/data/bomba/segundos/export', async (req, res) => {
+  try {
+    const { table, date } = req.query;
+
+    if (!table || !date) {
+      return res.status(400).json({ success: false, message: 'Se requieren los parámetros table y date' });
+    }
+
+    if (!ALLOWED_DATA_TABLES.includes(table)) {
+      return res.status(400).json({ success: false, message: 'Tabla no permitida' });
+    }
+
+    const startOfDay = `${date} 00:00:00`;
+    const endOfDay = `${date} 23:59:59`;
+
+    const query = `
+      SELECT
+        id,
+        chiller_id,
+        DATE_FORMAT(fecha_hora, '%Y-%m-%d %H:%i:%s') AS fecha_hora,
+        consumo_bomba_proceso
+      FROM ${table}
+      WHERE fecha_hora >= ? AND fecha_hora <= ?
+      ORDER BY fecha_hora DESC
+    `;
+
+    const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
 
     return res.json({
       success: true,
       table,
       date,
-      total_records,
-      consumo_promedio: consumo_promedio != null ? Number(consumo_promedio) : 0,
+      total_records: rows.length,
+      data: rows
     });
+
   } catch (error) {
-    console.error("Error en /api/chiller/data/bomba/segundos/avg:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Error al calcular el total del día convertido a horas",
-    });
+    console.error('Error en /api/chiller/data/bomba/segundos/export:', error);
+    return res.status(500).json({ success: false, message: 'Error al exportar los datos' });
   }
 });
 
+// =========================================
+// ✅ DATA SEGUNDOS CON PAGINACIÓN - CONSUMO CHILLER AGUA
+// GET /api/chiller/data/consumo/agua/segundos
+// =========================================
+app.get('/api/chiller/data/consumo/agua/segundos', async (req, res) => {
+  try {
+    const { date, page = 1, limit = 1000 } = req.query;
 
+    if (!date) {
+      return res.status(400).json({ success: false, message: 'Se requiere el parámetro date' });
+    }
 
+    const startOfDay = `${date} 00:00:00`;
+    const endOfDay = `${date} 23:59:59`;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const countQuery = `SELECT COUNT(*) as total FROM consumo_chiller_agua_segundos WHERE fecha_hora >= ? AND fecha_hora <= ?`;
+    const dataQuery = `
+      SELECT
+        id,
+        chiller_id,
+        DATE_FORMAT(fecha_hora, '%Y-%m-%d %H:%i:%s') AS fecha_hora,
+        consumo_compresor_agua,
+        consumo_evaporador_agua,
+        consumo_bomba_agua_potable
+      FROM consumo_chiller_agua_segundos
+      WHERE fecha_hora >= ? AND fecha_hora <= ?
+      ORDER BY fecha_hora DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const [[{ total }]] = await db.pool.query(countQuery, [startOfDay, endOfDay]);
+    const [rows] = await db.pool.query(dataQuery, [startOfDay, endOfDay, parseInt(limit), offset]);
+
+    return res.json({
+      success: true,
+      table: 'consumo_chiller_agua_segundos',
+      date,
+      timezone: 'America/Tegucigalpa (UTC-6)',
+      local_range: { startOfDay, endOfDay },
+      total_records: total,
+      current_page: parseInt(page),
+      total_pages: Math.ceil(total / parseInt(limit)),
+      records_per_page: parseInt(limit),
+      data: rows
+    });
+
+  } catch (error) {
+    console.error('Error en /api/chiller/data/consumo/agua/segundos:', error);
+    return res.status(500).json({ success: false, message: 'Error al obtener los datos de consumo chiller agua' });
+  }
+});
+
+// =========================================
+// ✅ TOTAL DEL DÍA - CONSUMO CHILLER AGUA
+// GET /api/chiller/data/consumo/agua/segundos/avg
+// =========================================
+app.get('/api/chiller/data/consumo/agua/segundos/avg', async (req, res) => {
+  try {
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({ success: false, message: 'Se requiere el parámetro date' });
+    }
+
+    const startOfDay = `${date} 00:00:00`;
+    const endOfDay = `${date} 23:59:59`;
+
+    const query = `
+      SELECT
+        COUNT(*) AS total_records,
+        SUM(CAST(consumo_compresor_agua AS DECIMAL(18,4))) / 3600 AS total_compresor_agua,
+        SUM(CAST(consumo_evaporador_agua AS DECIMAL(18,4))) / 3600 AS total_evaporador_agua,
+        SUM(CAST(consumo_bomba_agua_potable AS DECIMAL(18,4))) / 3600 AS total_bomba_agua_potable
+      FROM consumo_chiller_agua_segundos
+      WHERE fecha_hora >= ? AND fecha_hora <= ?
+    `;
+
+    const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
+
+    return res.json({
+      success: true,
+      table: 'consumo_chiller_agua_segundos',
+      date,
+      total_records: Number(rows?.[0]?.total_records || 0),
+      total_compresor_agua: rows?.[0]?.total_compresor_agua != null ? Number(rows[0].total_compresor_agua) : 0,
+      total_evaporador_agua: rows?.[0]?.total_evaporador_agua != null ? Number(rows[0].total_evaporador_agua) : 0,
+      total_bomba_agua_potable: rows?.[0]?.total_bomba_agua_potable != null ? Number(rows[0].total_bomba_agua_potable) : 0,
+    });
+
+  } catch (error) {
+    console.error('Error en /api/chiller/data/consumo/agua/segundos/avg:', error);
+    return res.status(500).json({ success: false, message: 'Error al calcular el total de consumo chiller agua' });
+  }
+});
+
+// =========================================
+// ✅ EXPORT COMPLETO - CONSUMO CHILLER AGUA
+// GET /api/chiller/data/consumo/agua/segundos/export
+// =========================================
+app.get('/api/chiller/data/consumo/agua/segundos/export', async (req, res) => {
+  try {
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({ success: false, message: 'Se requiere el parámetro date' });
+    }
+
+    const startOfDay = `${date} 00:00:00`;
+    const endOfDay = `${date} 23:59:59`;
+
+    const query = `
+      SELECT
+        id,
+        chiller_id,
+        DATE_FORMAT(fecha_hora, '%Y-%m-%d %H:%i:%s') AS fecha_hora,
+        consumo_compresor_agua,
+        consumo_evaporador_agua,
+        consumo_bomba_agua_potable
+      FROM consumo_chiller_agua_segundos
+      WHERE fecha_hora >= ? AND fecha_hora <= ?
+      ORDER BY fecha_hora DESC
+    `;
+
+    const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
+
+    return res.json({
+      success: true,
+      date,
+      total_records: rows.length,
+      data: rows
+    });
+
+  } catch (error) {
+    console.error('Error en /api/chiller/data/consumo/agua/segundos/export:', error);
+    return res.status(500).json({ success: false, message: 'Error al exportar los datos' });
+  }
+});
+
+// =========================================
+// ✅ DATA SEGUNDOS CON PAGINACIÓN - CONSUMO CHILLER AIRE
+// GET /api/chiller/data/consumo/aire/segundos
+// =========================================
+app.get('/api/chiller/data/consumo/aire/segundos', async (req, res) => {
+  try {
+    const { date, page = 1, limit = 1000 } = req.query;
+
+    if (!date) {
+      return res.status(400).json({ success: false, message: 'Se requiere el parámetro date' });
+    }
+
+    const startOfDay = `${date} 00:00:00`;
+    const endOfDay = `${date} 23:59:59`;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const countQuery = `SELECT COUNT(*) as total FROM consumo_chiller_aire_segundos WHERE fecha_hora >= ? AND fecha_hora <= ?`;
+    const dataQuery = `
+      SELECT
+        id,
+        chiller_id,
+        DATE_FORMAT(fecha_hora, '%Y-%m-%d %H:%i:%s') AS fecha_hora,
+        consumo_compresor_aire,
+        consumo_evaporador_aire
+      FROM consumo_chiller_aire_segundos
+      WHERE fecha_hora >= ? AND fecha_hora <= ?
+      ORDER BY fecha_hora DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const [[{ total }]] = await db.pool.query(countQuery, [startOfDay, endOfDay]);
+    const [rows] = await db.pool.query(dataQuery, [startOfDay, endOfDay, parseInt(limit), offset]);
+
+    return res.json({
+      success: true,
+      table: 'consumo_chiller_aire_segundos',
+      date,
+      timezone: 'America/Tegucigalpa (UTC-6)',
+      local_range: { startOfDay, endOfDay },
+      total_records: total,
+      current_page: parseInt(page),
+      total_pages: Math.ceil(total / parseInt(limit)),
+      records_per_page: parseInt(limit),
+      data: rows
+    });
+
+  } catch (error) {
+    console.error('Error en /api/chiller/data/consumo/aire/segundos:', error);
+    return res.status(500).json({ success: false, message: 'Error al obtener los datos de consumo chiller aire' });
+  }
+});
+
+// =========================================
+// ✅ TOTAL DEL DÍA - CONSUMO CHILLER AIRE
+// GET /api/chiller/data/consumo/aire/segundos/avg
+// =========================================
+app.get('/api/chiller/data/consumo/aire/segundos/avg', async (req, res) => {
+  try {
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({ success: false, message: 'Se requiere el parámetro date' });
+    }
+
+    const startOfDay = `${date} 00:00:00`;
+    const endOfDay = `${date} 23:59:59`;
+
+    const query = `
+      SELECT
+        COUNT(*) AS total_records,
+        SUM(CAST(consumo_compresor_aire AS DECIMAL(18,4))) / 3600 AS total_compresor_aire,
+        SUM(CAST(consumo_evaporador_aire AS DECIMAL(18,4))) / 3600 AS total_evaporador_aire
+      FROM consumo_chiller_aire_segundos
+      WHERE fecha_hora >= ? AND fecha_hora <= ?
+    `;
+
+    const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
+
+    return res.json({
+      success: true,
+      table: 'consumo_chiller_aire_segundos',
+      date,
+      total_records: Number(rows?.[0]?.total_records || 0),
+      total_compresor_aire: rows?.[0]?.total_compresor_aire != null ? Number(rows[0].total_compresor_aire) : 0,
+      total_evaporador_aire: rows?.[0]?.total_evaporador_aire != null ? Number(rows[0].total_evaporador_aire) : 0,
+    });
+
+  } catch (error) {
+    console.error('Error en /api/chiller/data/consumo/aire/segundos/avg:', error);
+    return res.status(500).json({ success: false, message: 'Error al calcular el total de consumo chiller aire' });
+  }
+});
+
+// =========================================
+// ✅ EXPORT COMPLETO - CONSUMO CHILLER AIRE
+// GET /api/chiller/data/consumo/aire/segundos/export
+// =========================================
+app.get('/api/chiller/data/consumo/aire/segundos/export', async (req, res) => {
+  try {
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({ success: false, message: 'Se requiere el parámetro date' });
+    }
+
+    const startOfDay = `${date} 00:00:00`;
+    const endOfDay = `${date} 23:59:59`;
+
+    const query = `
+      SELECT
+        id,
+        chiller_id,
+        DATE_FORMAT(fecha_hora, '%Y-%m-%d %H:%i:%s') AS fecha_hora,
+        consumo_compresor_aire,
+        consumo_evaporador_aire
+      FROM consumo_chiller_aire_segundos
+      WHERE fecha_hora >= ? AND fecha_hora <= ?
+      ORDER BY fecha_hora DESC
+    `;
+
+    const [rows] = await db.pool.query(query, [startOfDay, endOfDay]);
+
+    return res.json({
+      success: true,
+      table: 'consumo_chiller_aire_segundos',
+      date,
+      total_records: rows.length,
+      data: rows
+    });
+
+  } catch (error) {
+    console.error('Error en /api/chiller/data/consumo/aire/segundos/export:', error);
+    return res.status(500).json({ success: false, message: 'Error al exportar los datos de consumo chiller aire' });
+  }
+});
 
 const PORT = 3001;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor HTTP corriendo en puerto ${PORT} y accesible desde la red`);
 });
 
-// Exportar app para tests si es necesario
 module.exports = app;

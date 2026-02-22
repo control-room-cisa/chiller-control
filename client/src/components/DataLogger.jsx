@@ -938,7 +938,7 @@ export default function DataLogger() {
         {/* Tabla */}
         {dateFilter && selectedOption !== 'resumen_bitacora' && (
           <div className="flex-1 overflow-hidden">
-            <div className="h-full overflow-auto">
+            <div className="h-96 overflow-auto">
               <table className="min-w-full divide-y divide-gray-200 table-fixed">
                 <thead className="sticky top-0 z-10">
                   {renderTableHeaders()}
